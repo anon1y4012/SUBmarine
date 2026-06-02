@@ -611,6 +611,25 @@
     transition: all 0.14s;
   }
   .modal-close:hover { background: var(--abyss-600); color: var(--ink); }
+  .remove-confirm { padding: 24px; }
+  .remove-warning {
+    margin-top: 12px; padding: 10px 12px; border-radius: 9px;
+    background: rgba(255,107,107,0.09); border: 1px solid rgba(255,107,107,0.28);
+    color: var(--coral); font-size: 12px; line-height: 1.45;
+  }
+  .remove-status {
+    margin-top: 10px; color: var(--ink-dim);
+    font-family: var(--mono); font-size: 11px; line-height: 1.45;
+  }
+  .remove-options { display: flex; flex-direction: column; gap: 8px; margin-top: 18px; }
+  .remove-option {
+    display: flex; gap: 10px; padding: 11px 12px; border-radius: 9px;
+    background: var(--abyss-800); border: 1px solid var(--line);
+  }
+  .remove-option:has(input:disabled) { opacity: 0.48; }
+  .remove-option input { margin-top: 2px; accent-color: var(--coral); }
+  .remove-option-title { color: var(--ink); font-size: 13px; font-weight: 650; }
+  .remove-option-sub { margin-top: 3px; color: var(--ink-dim); font-size: 11.5px; line-height: 1.4; }
 
   /* Toast */
   .toast {
@@ -1606,13 +1625,128 @@ function openModal(id) {
 function closeModal() { $('modalBg').classList.remove('on'); }
 document.addEventListener('keydown', e => { if (e.key==='Escape') closeModal(); });
 
-// ════ REMOVE STUB ════
-function handleRemove(id) {
+// ════ REMOVE FLOW ════
+async function handleRemove(id) {
   const t = allTitles.find(x => x.id === id);
   if (!t) return;
-  const app = t.type === 'movie' ? 'Radarr' : 'Sonarr';
-  toast(`Queued "${t.title}" for removal via ${app} (stub)`);
-  closeModal();
+  if (t.type !== 'movie') {
+    toast('Sonarr removal is not wired yet');
+    closeModal();
+    return;
+  }
+
+  $('modal').innerHTML = `
+    <button class="modal-close" onclick="closeModal()"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M2 2l10 10M12 2L2 12"/></svg></button>
+    <div class="remove-confirm">
+      <div class="modal-title">Preparing removal</div>
+      <div class="remove-status">Checking Radarr and Plex for ${esc(t.title)}...</div>
+    </div>`;
+  $('modalBg').classList.add('on');
+
+  try {
+    const r = await fetch(`/api/remove/${id}/preview`);
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'Could not prepare removal');
+    renderRemovalConfirmation(id, t, d);
+  } catch (err) {
+    toast(err.message || 'Could not prepare removal');
+    closeModal();
+  }
+}
+
+function renderRemovalConfirmation(id, t, preview) {
+  const radarrReady = !!preview.radarr_movie;
+  const downloadsReady = radarrReady && !preview.queue_error && preview.downloads.length > 0;
+  const status = [
+    preview.radarr_error,
+    preview.queue_error,
+    downloadsReady ? `${preview.downloads.length} active Radarr download${preview.downloads.length === 1 ? '' : 's'} found.` : '',
+  ].filter(Boolean).map(esc).join('<br>');
+  $('modal').innerHTML = `
+    <button class="modal-close" onclick="closeModal()"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M2 2l10 10M12 2L2 12"/></svg></button>
+    <div class="remove-confirm">
+      <div class="modal-title">Remove ${esc(t.title)}?</div>
+      <div class="remove-warning">Choose each action deliberately. Deleting from Plex permanently removes the media file from disk. Nothing is deleted until you confirm.</div>
+      ${status ? `<div class="remove-status">${status}</div>` : ''}
+      <div class="remove-options">
+        <label class="remove-option">
+          <input id="rm-radarr" type="checkbox" ${radarrReady ? 'checked' : 'disabled'}>
+          <span>
+            <div class="remove-option-title">Remove from Radarr</div>
+            <div class="remove-option-sub">Stops Radarr tracking this movie. This option does not delete the media file.</div>
+          </span>
+        </label>
+        <label class="remove-option">
+          <input id="rm-plex" type="checkbox" ${preview.plex_available ? '' : 'disabled'}>
+          <span>
+            <div class="remove-option-title">Delete from Plex and disk</div>
+            <div class="remove-option-sub">Permanently deletes the Plex library item and its associated media file. Requires Plex Settings &gt; Server &gt; Library &gt; Allow media deletion.</div>
+          </span>
+        </label>
+        <label class="remove-option">
+          <input id="rm-downloads" type="checkbox" ${downloadsReady ? '' : 'disabled'}>
+          <span>
+            <div class="remove-option-title">Remove active download via Radarr</div>
+            <div class="remove-option-sub">Deletes ${preview.downloads.length} matching active download${preview.downloads.length === 1 ? '' : 's'} from the configured download client.</div>
+          </span>
+        </label>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="modal-btn ghost" onclick="closeModal()">Cancel</button>
+      <button class="modal-btn danger" id="removeConfirmBtn" onclick="confirmMovieRemoval(${id})">Confirm deletion</button>
+    </div>`;
+}
+
+async function confirmMovieRemoval(id) {
+  const removeRadarr = $('rm-radarr').checked;
+  const deletePlex = $('rm-plex').checked;
+  const removeDownloads = $('rm-downloads').checked;
+  const chosen = [
+    removeRadarr ? 'remove the movie from Radarr' : '',
+    deletePlex ? 'permanently delete the Plex media file' : '',
+    removeDownloads ? 'remove the active download from the download client' : '',
+  ].filter(Boolean);
+  if (!chosen.length) {
+    toast('Select at least one removal action');
+    return;
+  }
+  if (!window.confirm(`Confirm that you want to ${chosen.join(', ')}?`)) return;
+
+  const btn = $('removeConfirmBtn');
+  btn.disabled = true;
+  btn.textContent = 'Removing...';
+  try {
+    const r = await fetch(`/api/remove/${id}`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        confirmed: true,
+        remove_radarr: removeRadarr,
+        delete_plex: deletePlex,
+        remove_downloads: removeDownloads,
+      }),
+    });
+    const d = await r.json();
+    if (!r.ok) {
+      const err = new Error(d.error || 'Removal failed');
+      err.completed = d.completed || [];
+      throw err;
+    }
+    toast(d.completed.join(' · '));
+    closeModal();
+    await Promise.all([loadTitles(), loadCounts()]);
+  } catch (err) {
+    const completed = err.completed || [];
+    toast(completed.length ? `${err.message} Completed: ${completed.join(' · ')}` : (err.message || 'Removal failed'));
+    if (completed.length) {
+      closeModal();
+      await Promise.allSettled([loadTitles(), loadCounts()]);
+      return;
+    }
+    btn.disabled = false;
+    btn.textContent = 'Confirm deletion';
+  }
 }
 
 function toggleListSelection(id, checked) {

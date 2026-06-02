@@ -890,6 +890,220 @@ def _normalize_url(url):
     url = re.sub(r'(https?://)(localhost|0\.0\.0\.0|127\.0\.0\.1)', r'\1host.docker.internal', url)
     return url
 
+def _removal_title(title_id):
+    """Load the internal identifiers needed for a remote removal."""
+    db = get_db()
+    row = db.execute(
+        '''SELECT id, title, media_type, plex_rating_key, tmdb_id
+           FROM titles WHERE id=?''',
+        (title_id,)
+    ).fetchone()
+    db.close()
+    return dict(row) if row else None
+
+def _radarr_context(tmdb_id):
+    """Resolve a movie and its active queue records without exposing Radarr IDs to writes."""
+    url = _normalize_url(get_setting('radarr_url'))
+    key = get_setting('radarr_api_key')
+    result = {
+        'configured': bool(url and key),
+        'movie': None,
+        'downloads': [],
+        'error': '',
+        'queue_error': '',
+    }
+    if not result['configured']:
+        result['error'] = 'Radarr is not configured'
+        return result
+    try:
+        tmdb_id = int(tmdb_id)
+    except (TypeError, ValueError):
+        result['error'] = 'This movie does not have a TMDB match for Radarr lookup'
+        return result
+
+    headers = {'X-Api-Key': key}
+    try:
+        response = requests.get(
+            url + '/api/v3/movie',
+            headers=headers,
+            params={'tmdbId': tmdb_id},
+            timeout=8,
+        )
+        response.raise_for_status()
+        movies = response.json()
+        if not isinstance(movies, list):
+            raise ValueError('Radarr movie response was not a list')
+        movie = None
+        for item in movies:
+            try:
+                if int(item.get('tmdbId', -1)) == tmdb_id:
+                    movie = item
+                    break
+            except (AttributeError, TypeError, ValueError):
+                continue
+        if not movie:
+            result['error'] = 'Movie was not found in Radarr'
+            return result
+        movie_id = int(movie['id'])
+        result['movie'] = {
+            'id': movie_id,
+            'title': str(movie.get('title') or ''),
+        }
+    except Exception as exc:
+        log.warning(f"[REMOVE] Radarr movie lookup failed: {type(exc).__name__}")
+        result['error'] = 'Could not look up this movie in Radarr'
+        return result
+
+    try:
+        response = requests.get(
+            url + '/api/v3/queue',
+            headers=headers,
+            params=[('pageSize', 100), ('movieIds', movie_id)],
+            timeout=8,
+        )
+        response.raise_for_status()
+        queue = response.json()
+        records = queue.get('records', []) if isinstance(queue, dict) else []
+        for record in records:
+            try:
+                if int(record.get('movieId', -1)) != movie_id:
+                    continue
+                result['downloads'].append({
+                    'id': int(record['id']),
+                    'title': str(record.get('title') or 'Active download'),
+                    'status': str(record.get('status') or ''),
+                })
+            except (TypeError, ValueError, KeyError):
+                continue
+    except Exception as exc:
+        log.warning(f"[REMOVE] Radarr queue lookup failed: {type(exc).__name__}")
+        result['queue_error'] = 'Could not look up active Radarr downloads'
+    return result
+
+def _plex_deletion_available(title):
+    rating_key = str(title.get('plex_rating_key') or '')
+    return bool(
+        rating_key.isdigit()
+        and get_setting('plex_ip', PLEX_IP)
+        and get_setting('plex_token', PLEX_TOKEN)
+    )
+
+def _delete_local_title(title_id):
+    """Remove a Plex-deleted title from the local cache immediately."""
+    db = get_db()
+    db.execute('DELETE FROM provider_links WHERE title_id=?', (title_id,))
+    db.execute('DELETE FROM partial_provider_links WHERE title_id=?', (title_id,))
+    db.execute('DELETE FROM titles WHERE id=?', (title_id,))
+    db.commit()
+    db.close()
+
+@app.route('/api/remove/<int:title_id>/preview')
+def api_remove_preview(title_id):
+    title = _removal_title(title_id)
+    if not title:
+        return jsonify({'ok': False, 'error': 'Title not found'}), 404
+    if title['media_type'] != 'movie':
+        return jsonify({'ok': False, 'error': 'Sonarr removal is not wired yet'}), 400
+
+    radarr = _radarr_context(title.get('tmdb_id'))
+    return jsonify({
+        'ok': True,
+        'title': title['title'],
+        'plex_available': _plex_deletion_available(title),
+        'radarr_configured': radarr['configured'],
+        'radarr_movie': radarr['movie'],
+        'downloads': radarr['downloads'],
+        'radarr_error': radarr['error'],
+        'queue_error': radarr['queue_error'],
+    })
+
+@app.route('/api/remove/<int:title_id>', methods=['POST'])
+def api_remove_title(title_id):
+    data = _json_object()
+    if data is None:
+        return jsonify({'ok': False, 'error': 'Expected a JSON object'}), 400
+    if data.get('confirmed') is not True:
+        return jsonify({'ok': False, 'error': 'Deletion confirmation is required'}), 400
+
+    remove_radarr = data.get('remove_radarr') is True
+    delete_plex = data.get('delete_plex') is True
+    remove_downloads = data.get('remove_downloads') is True
+    if not any((remove_radarr, delete_plex, remove_downloads)):
+        return jsonify({'ok': False, 'error': 'Select at least one removal action'}), 400
+
+    title = _removal_title(title_id)
+    if not title:
+        return jsonify({'ok': False, 'error': 'Title not found'}), 404
+    if title['media_type'] != 'movie':
+        return jsonify({'ok': False, 'error': 'Sonarr removal is not wired yet'}), 400
+
+    radarr = None
+    if remove_radarr or remove_downloads:
+        radarr = _radarr_context(title.get('tmdb_id'))
+        if not radarr['movie']:
+            return jsonify({'ok': False, 'error': radarr['error'] or 'Movie was not found in Radarr'}), 400
+        if remove_downloads and radarr['queue_error']:
+            return jsonify({'ok': False, 'error': radarr['queue_error']}), 502
+        if remove_downloads and not radarr['downloads']:
+            return jsonify({'ok': False, 'error': 'No active Radarr downloads were found for this movie'}), 400
+    if delete_plex and not _plex_deletion_available(title):
+        return jsonify({'ok': False, 'error': 'Plex deletion is unavailable for this title'}), 400
+
+    completed = []
+    radarr_url = _normalize_url(get_setting('radarr_url'))
+    radarr_headers = {'X-Api-Key': get_setting('radarr_api_key')}
+
+    try:
+        if remove_downloads:
+            for download in radarr['downloads']:
+                response = requests.delete(
+                    f"{radarr_url}/api/v3/queue/{download['id']}",
+                    headers=radarr_headers,
+                    params={
+                        'removeFromClient': True,
+                        'blocklist': False,
+                        'skipRedownload': False,
+                        'changeCategory': False,
+                    },
+                    timeout=8,
+                )
+                response.raise_for_status()
+            count = len(radarr['downloads'])
+            completed.append(f"Removed {count} active download{'s' if count != 1 else ''} from the download client")
+
+        if delete_plex:
+            plex_ip = get_setting('plex_ip', PLEX_IP)
+            plex_port = get_setting('plex_port', PLEX_PORT)
+            plex_token = get_setting('plex_token', PLEX_TOKEN)
+            rating_key = str(title['plex_rating_key'])
+            response = requests.delete(
+                f'http://{plex_ip}:{plex_port}/library/metadata/{rating_key}',
+                headers=_plex_headers(plex_token),
+                timeout=8,
+            )
+            response.raise_for_status()
+            completed.append('Deleted the movie from Plex and disk')
+            _delete_local_title(title_id)
+
+        if remove_radarr:
+            response = requests.delete(
+                f"{radarr_url}/api/v3/movie/{radarr['movie']['id']}",
+                headers=radarr_headers,
+                params={'deleteFiles': False, 'addImportExclusion': False},
+                timeout=8,
+            )
+            response.raise_for_status()
+            completed.append('Removed the movie from Radarr')
+    except Exception as exc:
+        log.warning(f"[REMOVE] Remote deletion failed: {type(exc).__name__}")
+        return jsonify({
+            'ok': False,
+            'error': 'A remote deletion failed. Completed actions were not rolled back.',
+            'completed': completed,
+        }), 502
+
+    return jsonify({'ok': True, 'completed': completed})
+
 def _test_arr(url, key, app_name):
     """Test a Radarr or Sonarr connection. Tries v3 then v1 API."""
     url = _normalize_url(url)
