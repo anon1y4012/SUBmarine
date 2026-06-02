@@ -1,0 +1,19 @@
+# docker-compose.example.yml — copy to docker-compose.yml and run
+# All credentials are configured on first launch via the setup wizard.
+# No secrets belong in this file.
+
+services:
+  submarine:
+    build: .
+    container_name: submarine
+    restart: unless-stopped
+    ports:
+      - "5055:5000"        # Change left port if 5055 is taken
+    volumes:
+      - submarine-data:/data  # Persists config + DB between restarts
+    environment:
+      DB_PATH: /data/submarine.db
+      SYNC_WORKERS: "8"       # Parallel TMDB threads. Raise to 16 for faster pings.
+
+volumes:
+  submarine-data:

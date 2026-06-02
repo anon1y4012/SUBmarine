@@ -1,0 +1,13 @@
+# Credentials — never commit
+.env
+docker-compose.yml
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+
+# Data
+*.db
+*.sqlite
