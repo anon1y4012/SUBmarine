@@ -1,13 +1,15 @@
+import hashlib
+import logging
 import os
 import re
 import sqlite3
-import requests
 import threading
 import time
-import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+import requests
 from defusedxml import ElementTree as ET
 from flask import Flask, jsonify, render_template, request, Response
 
@@ -136,6 +138,14 @@ def init_db():
             FOREIGN KEY (title_id) REFERENCES titles(id),
             UNIQUE(title_id, provider_name)
         );
+        CREATE TABLE IF NOT EXISTS partial_provider_links (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title_id INTEGER NOT NULL,
+            provider_name TEXT NOT NULL,
+            seasons TEXT NOT NULL,
+            FOREIGN KEY (title_id) REFERENCES titles(id),
+            UNIQUE(title_id, provider_name)
+        );
         CREATE TABLE IF NOT EXISTS sync_status (
             id INTEGER PRIMARY KEY CHECK (id = 1),
             last_sync REAL DEFAULT 0,
@@ -258,6 +268,12 @@ def _without_plex_token(url):
     ])
     return urlunsplit((parts.scheme, parts.netloc, parts.path, query, parts.fragment))
 
+def _thumb_proxy_url(title_id, thumb_url):
+    """Version proxied artwork by its Plex source so browser caches cannot mix titles."""
+    source = _without_plex_token(thumb_url)
+    version = hashlib.sha256(source.encode('utf-8')).hexdigest()[:12]
+    return f'/api/thumb/{title_id}?v={version}'
+
 def fetch_plex_library(library_id, media_tag):
     _ip    = get_setting('plex_ip',    PLEX_IP)
     _port  = get_setting('plex_port',  PLEX_PORT)
@@ -303,6 +319,36 @@ def fetch_plex_library(library_id, media_tag):
         log.error(f"[PLEX] Unexpected: {e}", exc_info=True)
         return []
 
+def fetch_plex_tv_seasons(library_id):
+    """Return the regular-season numbers represented by episodes in the Plex TV library."""
+    _ip    = get_setting('plex_ip',    PLEX_IP)
+    _port  = get_setting('plex_port',  PLEX_PORT)
+    _token = get_setting('plex_token', PLEX_TOKEN)
+    url = f'http://{_ip}:{_port}/library/sections/{library_id}/all'
+    log.info(f"[PLEX] Fetching TV episode inventory for library {library_id}")
+    try:
+        r = requests.get(url, headers=_plex_headers(_token), params={'type': 4}, timeout=20)
+        r.raise_for_status()
+        root = ET.fromstring(r.content)
+        seasons_by_show = {}
+        episode_count = 0
+        for el in root.iter('Video'):
+            if el.attrib.get('type') not in ('', 'episode'):
+                continue
+            show_key = el.attrib.get('grandparentRatingKey', '')
+            try:
+                season_number = int(el.attrib.get('parentIndex', ''))
+            except ValueError:
+                continue
+            if show_key and season_number > 0:
+                seasons_by_show.setdefault(show_key, set()).add(season_number)
+                episode_count += 1
+        log.info(f"[PLEX] Found {episode_count} regular TV episodes across {len(seasons_by_show)} shows")
+        return seasons_by_show
+    except Exception as e:
+        log.warning(f"[PLEX] TV episode inventory unavailable: {type(e).__name__}")
+        return None
+
 # --- TMDB (thread-safe, no sleeps — rate limiting handled by pool size) ---
 _tmdb_local = threading.local()
 
@@ -331,6 +377,11 @@ def tmdb_search(title, media_type):
         log.warning(f"[TMDB] Search failed for '{title}': {type(e).__name__}")
         return None
 
+def _matched_tmdb_providers(payload):
+    flatrate = payload.get('results', {}).get('US', {}).get('flatrate', [])
+    normalized = [PROVIDER_ALIASES.get(p['provider_name'], p['provider_name']) for p in flatrate]
+    return [provider for provider in normalized if provider in SERVICES]
+
 def tmdb_providers(tmdb_id, media_type):
     endpoint = 'movie' if media_type == 'movie' else 'tv'
     try:
@@ -341,14 +392,54 @@ def tmdb_providers(tmdb_id, media_type):
             timeout=10
         )
         r.raise_for_status()
-        flatrate = r.json().get('results', {}).get('US', {}).get('flatrate', [])
-        raw = [p['provider_name'] for p in flatrate]
-        normalized = [PROVIDER_ALIASES.get(n, n) for n in raw]
-        matched = [p for p in normalized if p in SERVICES]
-        return matched
+        return _matched_tmdb_providers(r.json())
     except Exception as e:
         log.warning(f"[TMDB] Providers failed for ID {tmdb_id}: {type(e).__name__}")
         return []
+
+def tmdb_tv_season_providers(tmdb_id, season_number):
+    """Return US subscription providers for one TV season."""
+    try:
+        _tmdb_key = get_setting('tmdb_api_key', TMDB_API_KEY)
+        r = _get_tmdb_session().get(
+            f'https://api.themoviedb.org/3/tv/{tmdb_id}/season/{season_number}/watch/providers',
+            params={'api_key': _tmdb_key},
+            timeout=10
+        )
+        r.raise_for_status()
+        return _matched_tmdb_providers(r.json())
+    except Exception as e:
+        log.warning(f"[TMDB] Providers failed for TV ID {tmdb_id} season {season_number}: {type(e).__name__}")
+        return None
+
+def tmdb_tv_coverage(tmdb_id, plex_seasons):
+    """Return full providers and partial provider seasons for the TV seasons held in Plex."""
+    seasons = sorted(plex_seasons)
+    if not seasons:
+        return tmdb_providers(tmdb_id, 'tv'), {}
+
+    seasons_by_provider = {}
+    for season_number in seasons:
+        season_providers = tmdb_tv_season_providers(tmdb_id, season_number)
+        if season_providers is None:
+            log.warning(f"[TMDB] Falling back to title-level providers for TV ID {tmdb_id}")
+            return tmdb_providers(tmdb_id, 'tv'), {}
+        for provider in season_providers:
+            seasons_by_provider.setdefault(provider, []).append(season_number)
+
+    full, partial = [], {}
+    for provider in SERVICES:
+        provider_seasons = seasons_by_provider.get(provider, [])
+        if len(provider_seasons) == len(seasons):
+            full.append(provider)
+        elif provider_seasons:
+            partial[provider] = provider_seasons
+    return full, partial
+
+def tmdb_tv_providers(tmdb_id, plex_seasons):
+    """Return providers that cover every regular season represented in Plex."""
+    providers, _ = tmdb_tv_coverage(tmdb_id, plex_seasons)
+    return providers
 
 # --- Sync worker (runs one title, returns result dict) ---
 def process_title(item, mtype, existing_tmdb_id):
@@ -361,10 +452,19 @@ def process_title(item, mtype, existing_tmdb_id):
     if not tmdb_id:
         tmdb_id = tmdb_search(item['title'], mtype)
         if not tmdb_id:
-            return {'key': item['key'], 'tmdb_id': None, 'providers': []}
+            return {'key': item['key'], 'tmdb_id': None, 'providers': [], 'partial_providers': {}}
 
-    providers = tmdb_providers(tmdb_id, mtype)
-    return {'key': item['key'], 'tmdb_id': tmdb_id, 'providers': providers}
+    partial_providers = {}
+    if mtype == 'tv' and item.get('plex_seasons'):
+        providers, partial_providers = tmdb_tv_coverage(tmdb_id, item['plex_seasons'])
+    else:
+        providers = tmdb_providers(tmdb_id, mtype)
+    return {
+        'key': item['key'],
+        'tmdb_id': tmdb_id,
+        'providers': providers,
+        'partial_providers': partial_providers,
+    }
 
 # --- Sync orchestrator ---
 _sync_lock = threading.Lock()
@@ -405,7 +505,12 @@ def run_sync():
         log.info("[SYNC] Starting...")
 
         movies = fetch_plex_library(get_setting('movie_library_id', MOVIE_LIB_ID), 'Video')
-        tv     = fetch_plex_library(get_setting('tv_library_id', TV_LIB_ID), 'Directory')
+        tv_library_id = get_setting('tv_library_id', TV_LIB_ID)
+        tv = fetch_plex_library(tv_library_id, 'Directory')
+        tv_seasons = fetch_plex_tv_seasons(tv_library_id) if tv else None
+        if tv_seasons is not None:
+            for item in tv:
+                item['plex_seasons'] = tv_seasons.get(item['key'], set())
 
         if not movies and not tv:
             log.error("[SYNC] Nothing from Plex — check connection/token/library IDs")
@@ -461,7 +566,12 @@ def run_sync():
                     results[plex_key] = future.result()
                 except Exception as e:
                     log.error(f"[SYNC] Worker error for key {plex_key}: {e}")
-                    results[plex_key] = {'key': plex_key, 'tmdb_id': None, 'providers': []}
+                    results[plex_key] = {
+                        'key': plex_key,
+                        'tmdb_id': None,
+                        'providers': [],
+                        'partial_providers': {},
+                    }
                 completed += 1
                 if completed % 20 == 0 or completed == total:
                     pct = int(completed / total * 100)
@@ -489,6 +599,12 @@ def run_sync():
                 db.execute(
                     'INSERT OR IGNORE INTO provider_links (title_id, provider_name) VALUES (?, ?)',
                     (title_db_id, pname)
+                )
+            db.execute('DELETE FROM partial_provider_links WHERE title_id=?', (title_db_id,))
+            for pname, seasons in result.get('partial_providers', {}).items():
+                db.execute(
+                    'INSERT OR REPLACE INTO partial_provider_links (title_id, provider_name, seasons) VALUES (?, ?, ?)',
+                    (title_db_id, pname, ','.join(str(season) for season in seasons))
                 )
         db.commit()
 
@@ -528,10 +644,17 @@ def api_titles():
 
     if selected_services:
         placeholders = ','.join('?' * len(selected_services))
-        conditions.append(f'''EXISTS (
-            SELECT 1 FROM provider_links pl2
-            WHERE pl2.title_id=t.id AND pl2.provider_name IN ({placeholders})
+        conditions.append(f'''(
+            EXISTS (
+                SELECT 1 FROM provider_links pl2
+                WHERE pl2.title_id=t.id AND pl2.provider_name IN ({placeholders})
+            )
+            OR EXISTS (
+                SELECT 1 FROM partial_provider_links ppl2
+                WHERE ppl2.title_id=t.id AND ppl2.provider_name IN ({placeholders})
+            )
         )''')
+        params.extend(selected_services)
         params.extend(selected_services)
 
     if conditions:
@@ -539,6 +662,23 @@ def api_titles():
     query += ' GROUP BY t.id ORDER BY t.title'
 
     rows = db.execute(query, params).fetchall()
+    partial_by_title = {}
+    if rows:
+        title_ids = [row['id'] for row in rows]
+        placeholders = ','.join('?' * len(title_ids))
+        partial_rows = db.execute(
+            f'''SELECT title_id, provider_name, seasons
+                FROM partial_provider_links
+                WHERE title_id IN ({placeholders})
+                ORDER BY title_id, provider_name''',
+            title_ids
+        ).fetchall()
+        for row in partial_rows:
+            seasons = [int(season) for season in row['seasons'].split(',') if season]
+            partial_by_title.setdefault(row['title_id'], []).append({
+                'name': row['provider_name'],
+                'seasons': seasons,
+            })
     db.close()
 
     titles = []
@@ -551,8 +691,9 @@ def api_titles():
             'title':     row['title'],
             'year':      row['year'],
             'type':      row['media_type'],
-            'thumb':     f"/api/thumb/{row['id']}" if row['thumb_url'] else '',
+            'thumb':     _thumb_proxy_url(row['id'], row['thumb_url']) if row['thumb_url'] else '',
             'providers': provider_list,
+            'partial_providers': partial_by_title.get(row['id'], []),
         })
     return jsonify(titles)
 
@@ -562,14 +703,23 @@ def api_service_counts():
     db = get_db()
     rows = db.execute('''
         SELECT provider_name, COUNT(DISTINCT title_id) as cnt
-        FROM provider_links
+        FROM (
+            SELECT title_id, provider_name FROM provider_links
+            UNION
+            SELECT title_id, provider_name FROM partial_provider_links
+        )
         GROUP BY provider_name
     ''').fetchall()
     counts = {r['provider_name']: r['cnt'] for r in rows}
 
     # Titles available on at least one service
     overlap = db.execute('''
-        SELECT COUNT(DISTINCT title_id) as c FROM provider_links
+        SELECT COUNT(DISTINCT title_id) as c
+        FROM (
+            SELECT title_id FROM provider_links
+            UNION
+            SELECT title_id FROM partial_provider_links
+        )
     ''').fetchone()['c']
 
     total = db.execute('SELECT COUNT(*) as c FROM titles').fetchone()['c']
