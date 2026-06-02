@@ -945,7 +945,7 @@
         <!-- Dashboard metrics -->
         <div class="dash-grid">
           <div class="metric" id="m-total-card">
-            <div class="metric-k" id="m-total-label"><svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><rect x="0.5" y="0.5" width="5" height="5" rx="1"/><rect x="6.5" y="0.5" width="5" height="5" rx="1"/><rect x="0.5" y="6.5" width="5" height="5" rx="1"/><rect x="6.5" y="6.5" width="5" height="5" rx="1"/></svg> Library Size</div>
+            <div class="metric-k"><svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><rect x="0.5" y="0.5" width="5" height="5" rx="1"/><rect x="6.5" y="0.5" width="5" height="5" rx="1"/><rect x="0.5" y="6.5" width="5" height="5" rx="1"/><rect x="6.5" y="6.5" width="5" height="5" rx="1"/></svg> <span id="m-total-label">Library Size</span></div>
             <div class="metric-v" id="m-total">—</div>
             <div class="metric-sub" id="m-total-sub">titles indexed</div>
           </div>
@@ -1187,7 +1187,7 @@
         <div class="setup-field">
           <div class="setup-label">Auth Token <span class="req">*</span></div>
           <input class="setup-input" id="su-plex_token" placeholder="xxxxxxxxxxxxxxxxxxxx" type="password" autocomplete="new-password">
-          <div class="setup-hint">Find yours at <a href="https://www.plexopedia.com/plex-media-server/general/plex-token/" target="_blank">plex.tv → Account → Troubleshooting → Show token</a></div>
+          <div class="setup-hint">Find yours at <a href="https://www.plexopedia.com/plex-media-server/general/plex-token/" target="_blank" rel="noopener noreferrer">plex.tv → Account → Troubleshooting → Show token</a></div>
         </div>
         <div class="setup-field">
           <div class="setup-label">Library IDs</div>
@@ -1216,7 +1216,7 @@
         <div class="setup-field">
           <div class="setup-label">API Key (v3 auth) <span class="req">*</span></div>
           <input class="setup-input" id="su-tmdb_key" placeholder="a1b2c3d4e5f6..." type="password" autocomplete="new-password">
-          <div class="setup-hint">Get a free key at <a href="https://www.themoviedb.org/settings/api" target="_blank">themoviedb.org/settings/api</a> → Request an API key → Developer</div>
+          <div class="setup-hint">Get a free key at <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener noreferrer">themoviedb.org/settings/api</a> → Request an API key → Developer</div>
         </div>
         <div class="setup-test-row">
           <button class="setup-test-btn" id="su-test-tmdb" onclick="setupTestTmdb()">Verify Key</button>
@@ -1405,12 +1405,12 @@ function render() {
     else if (selectedSvcs.size > 1) parts.push(`${selectedSvcs.size} Services`);
     if (filterCov === 'covered') parts.push('Streamable');
     else if (filterCov === 'orphan') parts.push('Plex Only');
-    labelEl.innerHTML = labelEl.innerHTML.replace(/>[^<]+$/, `> ${parts.join(' · ') || 'Filtered'}`);
+    labelEl.textContent = parts.join(' · ') || 'Filtered';
     subEl.textContent = 'titles in current filter';
     card.style.borderColor = 'var(--phosphor-dim)';
   } else {
     $('m-total').textContent = allTitles.length || '—';
-    labelEl.innerHTML = labelEl.innerHTML.replace(/>[^<]+$/, '> Library Size');
+    labelEl.textContent = 'Library Size';
     subEl.textContent = 'titles indexed';
     card.style.borderColor = '';
   }
@@ -1437,7 +1437,7 @@ function renderGrid(rows) {
         <span class="avail-badge ${has?'has':'none'}">${has||'0'}</span>
         <div class="scrim">
           <div class="card-title">${esc(t.title)}</div>
-          ${t.year?`<div class="card-year">${t.year}</div>`:''}
+          ${t.year?`<div class="card-year">${esc(t.year)}</div>`:''}
           ${has?`<div class="svc-dots">${dots}</div>`:''}
         </div>
       </div>
@@ -1457,7 +1457,7 @@ function renderList(rows) {
       ${poster}
       <div class="lrow-main">
         <div class="lrow-title">${esc(t.title)}</div>
-        <div class="lrow-meta">${t.type==='movie'?'FILM':'SERIES'}${t.year?' · '+t.year:''}</div>
+        <div class="lrow-meta">${t.type==='movie'?'FILM':'SERIES'}${t.year?' · '+esc(t.year):''}</div>
       </div>
       <div class="lrow-svcs">${svcs}</div>
       <div class="lrow-actions"><button class="mini-remove" onclick='event.stopPropagation();handleRemove(${t.id})'>Remove</button></div>
@@ -1488,7 +1488,7 @@ function openModal(id) {
       ${poster}
       <div class="modal-info">
         <div class="modal-title">${esc(t.title)}</div>
-        <div class="modal-meta">${t.type==='movie'?'FILM':'SERIES'}${t.year?' · '+t.year:''}</div>
+        <div class="modal-meta">${t.type==='movie'?'FILM':'SERIES'}${t.year?' · '+esc(t.year):''}</div>
         <div class="modal-section-label">Streaming Availability</div>
         ${svcs}
       </div>

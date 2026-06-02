@@ -8,6 +8,7 @@ services:
     container_name: submarine
     restart: unless-stopped
     ports:
+      # Prefix with 127.0.0.1: for local-only access. See the README security note.
       - "5055:5000"        # Change left port if 5055 is taken
     volumes:
       - submarine-data:/data  # Persists config + DB between restarts

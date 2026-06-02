@@ -2,12 +2,13 @@ import os
 import re
 import sqlite3
 import requests
-import xml.etree.ElementTree as ET
 import threading
 import time
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from defusedxml import ElementTree as ET
 from flask import Flask, jsonify, render_template, request, Response
 
 # --- Logging ---
@@ -20,7 +21,20 @@ log = logging.getLogger('plexarr')
 
 app = Flask(__name__)
 
+@app.after_request
+def add_security_headers(response):
+    response.headers.setdefault('X-Content-Type-Options', 'nosniff')
+    response.headers.setdefault('X-Frame-Options', 'DENY')
+    response.headers.setdefault('Referrer-Policy', 'no-referrer')
+    return response
+
 # --- Config ---
+def _bounded_workers(value, fallback=8):
+    try:
+        return max(1, min(int(value), 32))
+    except (TypeError, ValueError):
+        return fallback
+
 TMDB_API_KEY = os.getenv('TMDB_API_KEY', '')
 PLEX_IP      = os.getenv('PLEX_IP', '')
 PLEX_PORT    = os.getenv('PLEX_PORT', '32400')
@@ -29,15 +43,16 @@ MOVIE_LIB_ID = os.getenv('MOVIE_LIBRARY_ID', '1')
 TV_LIB_ID    = os.getenv('TV_LIBRARY_ID', '2')
 DB_PATH      = os.getenv('DB_PATH', '/data/submarine.db')
 # How many parallel TMDB workers during sync (stay under rate limit)
-SYNC_WORKERS = int(os.getenv('SYNC_WORKERS', '8'))
+SYNC_WORKERS = _bounded_workers(os.getenv('SYNC_WORKERS', '8'))
+MAX_THUMB_BYTES = 10 * 1024 * 1024
 
 log.info("=== CONFIG ===")
 log.info(f"  PLEX_IP:          {PLEX_IP}")
 log.info(f"  PLEX_PORT:        {PLEX_PORT}")
-log.info(f"  PLEX_TOKEN:       {'SET (' + PLEX_TOKEN[:6] + '...)' if PLEX_TOKEN else 'NOT SET'}")
+log.info(f"  PLEX_TOKEN:       {'SET' if PLEX_TOKEN else 'NOT SET'}")
 log.info(f"  MOVIE_LIBRARY_ID: {MOVIE_LIB_ID}")
 log.info(f"  TV_LIBRARY_ID:    {TV_LIB_ID}")
-log.info(f"  TMDB_API_KEY:     {'SET (' + TMDB_API_KEY[:6] + '...)' if TMDB_API_KEY else 'NOT SET'}")
+log.info(f"  TMDB_API_KEY:     {'SET' if TMDB_API_KEY else 'NOT SET'}")
 log.info(f"  DB_PATH:          {DB_PATH}")
 log.info(f"  SYNC_WORKERS:     {SYNC_WORKERS}")
 
@@ -96,6 +111,7 @@ PROVIDER_ALIASES = {
 def get_db():
     db = sqlite3.connect(DB_PATH)
     db.row_factory = sqlite3.Row
+    db.execute('PRAGMA foreign_keys = ON')
     return db
 
 def init_db():
@@ -223,15 +239,33 @@ def get_all_settings():
     except Exception:
         return {}
 
+def get_sync_workers():
+    """Read the configured worker count while enforcing a conservative ceiling."""
+    return _bounded_workers(get_setting('sync_workers', str(SYNC_WORKERS)), SYNC_WORKERS)
+
 # --- Plex ---
+def _plex_headers(token):
+    """Send the Plex token in a header so it cannot leak through URLs or logs."""
+    return {'X-Plex-Token': token} if token else {}
+
+def _without_plex_token(url):
+    """Remove legacy Plex tokens from stored thumbnail URLs."""
+    parts = urlsplit(url)
+    query = urlencode([
+        (key, value)
+        for key, value in parse_qsl(parts.query, keep_blank_values=True)
+        if key.lower() != 'x-plex-token'
+    ])
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, query, parts.fragment))
+
 def fetch_plex_library(library_id, media_tag):
     _ip    = get_setting('plex_ip',    PLEX_IP)
     _port  = get_setting('plex_port',  PLEX_PORT)
     _token = get_setting('plex_token', PLEX_TOKEN)
-    url = f'http://{_ip}:{_port}/library/sections/{library_id}/all?X-Plex-Token={_token}'
+    url = f'http://{_ip}:{_port}/library/sections/{library_id}/all'
     log.info(f"[PLEX] Fetching library {library_id} (tag=<{media_tag}>)")
     try:
-        r = requests.get(url, timeout=20)
+        r = requests.get(url, headers=_plex_headers(_token), timeout=20)
         log.info(f"[PLEX] HTTP {r.status_code} — {len(r.content)} bytes")
         r.raise_for_status()
         root = ET.fromstring(r.content)
@@ -245,7 +279,7 @@ def fetch_plex_library(library_id, media_tag):
             thumb = el.attrib.get('thumb', '')
             if title:
                 thumb_url = (
-                    f'http://{_ip}:{_port}{thumb}?X-Plex-Token={_token}'
+                    f'http://{_ip}:{_port}{thumb}'
                     if thumb else ''
                 )
                 items.append({'key': key, 'title': title, 'year': year, 'thumb': thumb_url})
@@ -270,13 +304,20 @@ def fetch_plex_library(library_id, media_tag):
         return []
 
 # --- TMDB (thread-safe, no sleeps — rate limiting handled by pool size) ---
-_tmdb_session = requests.Session()
+_tmdb_local = threading.local()
+
+def _get_tmdb_session():
+    session = getattr(_tmdb_local, 'session', None)
+    if session is None:
+        session = requests.Session()
+        _tmdb_local.session = session
+    return session
 
 def tmdb_search(title, media_type):
     endpoint = 'movie' if media_type == 'movie' else 'tv'
     try:
         _tmdb_key = get_setting('tmdb_api_key', TMDB_API_KEY)
-        r = _tmdb_session.get(
+        r = _get_tmdb_session().get(
             f'https://api.themoviedb.org/3/search/{endpoint}',
             params={'api_key': _tmdb_key, 'query': title},
             timeout=10
@@ -287,14 +328,14 @@ def tmdb_search(title, media_type):
             return str(results[0]['id'])
         return None
     except Exception as e:
-        log.warning(f"[TMDB] Search failed for '{title}': {e}")
+        log.warning(f"[TMDB] Search failed for '{title}': {type(e).__name__}")
         return None
 
 def tmdb_providers(tmdb_id, media_type):
     endpoint = 'movie' if media_type == 'movie' else 'tv'
     try:
         _tmdb_key = get_setting('tmdb_api_key', TMDB_API_KEY)
-        r = _tmdb_session.get(
+        r = _get_tmdb_session().get(
             f'https://api.themoviedb.org/3/{endpoint}/{tmdb_id}/watch/providers',
             params={'api_key': _tmdb_key},
             timeout=10
@@ -306,7 +347,7 @@ def tmdb_providers(tmdb_id, media_type):
         matched = [p for p in normalized if p in SERVICES]
         return matched
     except Exception as e:
-        log.warning(f"[TMDB] Providers failed for ID {tmdb_id}: {e}")
+        log.warning(f"[TMDB] Providers failed for ID {tmdb_id}: {type(e).__name__}")
         return []
 
 # --- Sync worker (runs one title, returns result dict) ---
@@ -328,6 +369,20 @@ def process_title(item, mtype, existing_tmdb_id):
 # --- Sync orchestrator ---
 _sync_lock = threading.Lock()
 
+def claim_sync():
+    """Claim the shared SQLite sync flag atomically across Gunicorn workers."""
+    db = get_db()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        cursor = db.execute(
+            'UPDATE sync_status SET sync_message=?, is_syncing=1 WHERE id=1 AND is_syncing=0',
+            ('Fetching Plex libraries...',)
+        )
+        db.commit()
+        return cursor.rowcount == 1
+    finally:
+        db.close()
+
 def set_sync_status(msg, syncing=True, synced=None, total=None):
     db = get_db()
     if synced is not None and total is not None:
@@ -343,17 +398,11 @@ def set_sync_status(msg, syncing=True, synced=None, total=None):
 
 def run_sync():
     with _sync_lock:
-        # Check already running
-        db = get_db()
-        row = db.execute('SELECT is_syncing FROM sync_status WHERE id=1').fetchone()
-        already = row and row['is_syncing']
-        db.close()
-        if already:
+        if not claim_sync():
             log.warning("[SYNC] Already in progress, skipping")
             return
 
         log.info("[SYNC] Starting...")
-        set_sync_status('Fetching Plex libraries...')
 
         movies = fetch_plex_library(get_setting('movie_library_id', MOVIE_LIB_ID), 'Video')
         tv     = fetch_plex_library(get_setting('tv_library_id', TV_LIB_ID), 'Directory')
@@ -365,7 +414,8 @@ def run_sync():
 
         all_items = [(m, 'movie') for m in movies] + [(t, 'tv') for t in tv]
         total = len(all_items)
-        log.info(f"[SYNC] {total} titles to process with {SYNC_WORKERS} workers")
+        sync_workers = get_sync_workers()
+        log.info(f"[SYNC] {total} titles to process with {sync_workers} workers")
 
         # Upsert all titles into DB first (fast, serial)
         db = get_db()
@@ -395,7 +445,7 @@ def run_sync():
         results = {}
         completed = 0
 
-        with ThreadPoolExecutor(max_workers=SYNC_WORKERS) as pool:
+        with ThreadPoolExecutor(max_workers=sync_workers) as pool:
             future_to_key = {
                 pool.submit(
                     process_title,
@@ -567,11 +617,23 @@ def api_thumb(title_id):
     if not row or not row['thumb_url']:
         return '', 404
     try:
-        r = requests.get(row['thumb_url'], timeout=8, stream=True)
-        r.raise_for_status()
+        url = _without_plex_token(row['thumb_url'])
+        token = get_setting('plex_token', PLEX_TOKEN)
+        with requests.get(url, headers=_plex_headers(token), timeout=8, stream=True) as r:
+            r.raise_for_status()
+            content_type = r.headers.get('Content-Type', 'image/jpeg').split(';', 1)[0].strip().lower()
+            if not content_type.startswith('image/'):
+                log.warning(f"[THUMB] Rejected non-image content for title {title_id}")
+                return '', 502
+            content = bytearray()
+            for chunk in r.iter_content(chunk_size=64 * 1024):
+                content.extend(chunk)
+                if len(content) > MAX_THUMB_BYTES:
+                    log.warning(f"[THUMB] Rejected oversized image for title {title_id}")
+                    return '', 502
         return Response(
-            r.content,
-            content_type=r.headers.get('Content-Type', 'image/jpeg'),
+            bytes(content),
+            content_type=content_type,
             headers={'Cache-Control': 'public, max-age=86400'}
         )
     except Exception as e:
@@ -583,13 +645,20 @@ def api_setup_status():
     complete = is_setup_complete()
     return jsonify({'complete': complete})
 
+def _json_object():
+    """Return a JSON object body, or None for malformed and non-object payloads."""
+    data = request.get_json(silent=True)
+    return data if isinstance(data, dict) else None
+
 @app.route('/api/setup/save', methods=['POST'])
 def api_setup_save():
     """Save initial configuration from the setup wizard."""
-    data = request.get_json(force=True)
+    data = _json_object()
+    if data is None:
+        return jsonify({'ok': False, 'error': 'Expected a JSON object'}), 400
     required = ['plex_ip', 'plex_token', 'tmdb_api_key']
     for key in required:
-        if not data.get(key, '').strip():
+        if not str(data.get(key, '')).strip():
             return jsonify({'ok': False, 'error': f'Missing required field: {key}'}), 400
 
     allowed = {
@@ -613,29 +682,29 @@ def api_setup_save():
 @app.route('/api/settings', methods=['GET'])
 def api_settings_get():
     s = get_all_settings()
-    # Mask tokens for display - send masked versions
-    def mask(v): return v[:6] + '••••••••' + v[-3:] if len(v) > 12 else ('••••••••' if v else '')
     return jsonify({
         'plex_ip':          s.get('plex_ip', ''),
         'plex_port':        s.get('plex_port', '32400'),
-        'plex_token':       mask(s.get('plex_token', '')),
+        'plex_token':       '',
         'plex_token_set':   bool(s.get('plex_token', '')),
         'movie_library_id': s.get('movie_library_id', '1'),
         'tv_library_id':    s.get('tv_library_id', '2'),
-        'tmdb_api_key':     mask(s.get('tmdb_api_key', '')),
+        'tmdb_api_key':     '',
         'tmdb_api_key_set': bool(s.get('tmdb_api_key', '')),
         'sync_workers':     s.get('sync_workers', '8'),
         'radarr_url':       s.get('radarr_url', ''),
-        'radarr_api_key':   mask(s.get('radarr_api_key', '')),
+        'radarr_api_key':   '',
         'radarr_api_key_set': bool(s.get('radarr_api_key', '')),
         'sonarr_url':       s.get('sonarr_url', ''),
-        'sonarr_api_key':   mask(s.get('sonarr_api_key', '')),
+        'sonarr_api_key':   '',
         'sonarr_api_key_set': bool(s.get('sonarr_api_key', '')),
     })
 
 @app.route('/api/settings', methods=['POST'])
 def api_settings_post():
-    data = request.get_json(force=True)
+    data = _json_object()
+    if data is None:
+        return jsonify({'ok': False, 'error': 'Expected a JSON object'}), 400
     # Allowed keys
     allowed = {
         'plex_ip', 'plex_port', 'plex_token', 'movie_library_id',
@@ -660,7 +729,7 @@ def api_settings_post():
 
 def _normalize_url(url):
     """Ensure URL has a scheme and replace localhost/0.0.0.0 with docker host."""
-    url = url.strip().rstrip('/')
+    url = str(url or '').strip().rstrip('/')
     if not url:
         return url
     # Add scheme if missing
@@ -689,7 +758,7 @@ def _test_arr(url, key, app_name):
                     test_url = url + api_path
                 else:
                     test_url = url + api_path + f'?apikey={key}'
-                log.info(f"[TEST] {app_name} {auth_style} → {test_url}")
+                log.info(f"[TEST] {app_name} {auth_style} → {url}{api_path}")
                 r = requests.get(test_url, **kwargs)
                 if r.status_code == 401:
                     return {'ok': False, 'msg': f'HTTP 401 — API key rejected by {app_name}'}
@@ -700,9 +769,9 @@ def _test_arr(url, key, app_name):
                 d = r.json()
                 version = d.get('version', '?')
                 return {'ok': True, 'msg': f'{app_name} v{version} — connected at {url}'}
-            except requests.exceptions.ConnectionError as e:
+            except requests.exceptions.ConnectionError:
                 last_err = f'Connection refused at {url} — is {app_name} running?'
-                log.warning(f"[TEST] {app_name} connection failed: {e}")
+                log.warning(f"[TEST] {app_name} connection failed at {url}")
                 break  # No point trying auth styles if host is unreachable
             except requests.exceptions.Timeout:
                 last_err = f'Timed out connecting to {url}'
@@ -710,23 +779,25 @@ def _test_arr(url, key, app_name):
             except requests.exceptions.HTTPError as e:
                 last_err = f'HTTP {e.response.status_code} from {app_name}'
             except Exception as e:
-                last_err = str(e)[:120]
+                last_err = f'{type(e).__name__} while testing {app_name}'
 
     return {'ok': False, 'msg': last_err or f'Could not connect to {app_name}'}
 
 @app.route('/api/settings/test', methods=['POST'])
 def api_settings_test():
-    data   = request.get_json(force=True)
+    data = _json_object()
+    if data is None:
+        return jsonify({'ok': False, 'msg': 'Expected a JSON object'}), 400
     target = data.get('target')
     try:
         if target == 'plex':
             ip    = _normalize_url(data.get('plex_ip', get_setting('plex_ip'))).replace('http://','').replace('https://','')
             port  = data.get('plex_port', get_setting('plex_port', '32400')) or '32400'
-            token = data.get('plex_token', '')
+            token = str(data.get('plex_token', '') or '')
             if '••••' in token or not token: token = get_setting('plex_token')
-            url = f'http://{ip}:{port}/identity?X-Plex-Token={token}'
-            log.info(f"[TEST] Plex → {url[:60]}")
-            r = requests.get(url, timeout=8)
+            url = f'http://{ip}:{port}/identity'
+            log.info(f"[TEST] Plex → {url}")
+            r = requests.get(url, headers=_plex_headers(token), timeout=8)
             if r.status_code == 401:
                 return jsonify({'ok': False, 'msg': 'HTTP 401 — invalid Plex token'})
             r.raise_for_status()
@@ -738,7 +809,7 @@ def api_settings_test():
             return jsonify({'ok': True, 'msg': f'Connected — {name}'})
 
         elif target == 'tmdb':
-            key = data.get('tmdb_api_key', '')
+            key = str(data.get('tmdb_api_key', '') or '')
             if '••••' in key or not key: key = get_setting('tmdb_api_key')
             if not key:
                 return jsonify({'ok': False, 'msg': 'No TMDB API key configured'})
@@ -751,28 +822,28 @@ def api_settings_test():
 
         elif target == 'radarr':
             url = data.get('radarr_url', '') or get_setting('radarr_url')
-            key = data.get('radarr_api_key', '')
+            key = str(data.get('radarr_api_key', '') or '')
             if '••••' in key or not key: key = get_setting('radarr_api_key')
             return jsonify(_test_arr(url, key, 'Radarr'))
 
         elif target == 'sonarr':
             url = data.get('sonarr_url', '') or get_setting('sonarr_url')
-            key = data.get('sonarr_api_key', '')
+            key = str(data.get('sonarr_api_key', '') or '')
             if '••••' in key or not key: key = get_setting('sonarr_api_key')
             return jsonify(_test_arr(url, key, 'Sonarr'))
 
         else:
             return jsonify({'ok': False, 'msg': 'Unknown test target'})
 
-    except requests.exceptions.ConnectionError as e:
-        return jsonify({'ok': False, 'msg': f'Connection refused — {str(e)[:80]}'})
+    except requests.exceptions.ConnectionError:
+        return jsonify({'ok': False, 'msg': 'Connection refused'})
     except requests.exceptions.Timeout:
         return jsonify({'ok': False, 'msg': 'Connection timed out after 8s'})
     except requests.exceptions.HTTPError as e:
         return jsonify({'ok': False, 'msg': f'HTTP {e.response.status_code} — check credentials'})
     except Exception as e:
-        log.error(f"[TEST] Unexpected: {e}", exc_info=True)
-        return jsonify({'ok': False, 'msg': str(e)[:120]})
+        log.error(f"[TEST] Unexpected: {type(e).__name__}")
+        return jsonify({'ok': False, 'msg': 'Unexpected connection test error'})
 
 @app.route('/api/settings/discover', methods=['POST'])
 def api_settings_discover():
@@ -780,7 +851,9 @@ def api_settings_discover():
     Probe common LAN addresses and ports to auto-detect Radarr/Sonarr.
     Scans host.docker.internal (the Mac Mini host) on the standard ports.
     """
-    data    = request.get_json(force=True) or {}
+    data = _json_object()
+    if data is None:
+        return jsonify({'ok': False, 'error': 'Expected a JSON object'}), 400
     targets = data.get('targets', ['radarr', 'sonarr'])
 
     # Ports to probe per service
@@ -791,7 +864,7 @@ def api_settings_discover():
 
     # Hosts to try: docker host gateway, plus any custom hint from the UI
     base_hosts = ['host.docker.internal']
-    custom_hint = (data.get('hint') or '').strip()
+    custom_hint = str(data.get('hint') or '').strip()
     if custom_hint:
         h = custom_hint.replace('http://','').replace('https://','').split('/')[0].split(':')[0]
         if h and h not in base_hosts:
@@ -849,9 +922,9 @@ def api_debug_plex():
         (_ml, 'Video', 'movies'),
         (_tl, 'Directory', 'tv'),
     ]:
-        url = f'http://{_ip}:{_port}/library/sections/{lib_id}/all?X-Plex-Token={_token}'
+        url = f'http://{_ip}:{_port}/library/sections/{lib_id}/all'
         try:
-            r = requests.get(url, timeout=10)
+            r = requests.get(url, headers=_plex_headers(_token), timeout=10)
             root = ET.fromstring(r.content)
             all_tags = list(set(el.tag for el in root.iter()))
             items = [el.attrib.get('title', '') for el in root.iter(tag)][:5]
@@ -862,16 +935,16 @@ def api_debug_plex():
                 'sample_titles': items,
             }
         except Exception as e:
-            results[label] = {'error': str(e)}
+            results[label] = {'error': type(e).__name__}
     try:
         r = requests.get(
             'https://api.themoviedb.org/3/search/movie',
-            params={'api_key': TMDB_API_KEY, 'query': 'The Godfather'},
+            params={'api_key': get_setting('tmdb_api_key', TMDB_API_KEY), 'query': 'The Godfather'},
             timeout=10
         )
         results['tmdb'] = {'status': r.status_code, 'ok': r.status_code == 200}
     except Exception as e:
-        results['tmdb'] = {'error': str(e)}
+        results['tmdb'] = {'error': type(e).__name__}
     return jsonify(results)
 
 if __name__ == '__main__':
