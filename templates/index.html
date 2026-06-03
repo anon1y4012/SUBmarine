@@ -621,6 +621,16 @@
     margin-top: 10px; color: var(--ink-dim);
     font-family: var(--mono); font-size: 11px; line-height: 1.45;
   }
+  .remove-presets { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 18px; }
+  .remove-preset {
+    text-align: left; padding: 12px; border-radius: 10px; cursor: pointer;
+    background: var(--abyss-800); border: 1px solid var(--line);
+    color: var(--ink-soft); transition: all 0.14s;
+  }
+  .remove-preset.on { border-color: var(--phosphor-dim); background: var(--phosphor-glow); color: var(--ink); }
+  .remove-preset:disabled { cursor: not-allowed; opacity: 0.45; }
+  .remove-preset-title { font-size: 13px; font-weight: 750; color: var(--ink); }
+  .remove-preset-sub { margin-top: 4px; font-size: 11.5px; line-height: 1.4; color: var(--ink-dim); }
   .remove-options { display: flex; flex-direction: column; gap: 8px; margin-top: 18px; }
   .remove-option {
     display: flex; gap: 10px; padding: 11px 12px; border-radius: 9px;
@@ -1172,6 +1182,68 @@
       </div>
     </div>
 
+    <!-- Cleanuparr -->
+    <div class="s-section">
+      <div class="s-section-head">
+        <div class="s-section-title">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3.5h9M4 3.5V2h5v1.5M3 3.5l.7 7.5h5.6l.7-7.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Cleanuparr
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="s-test" id="discover-cleanuparr" onclick="discoverService('cleanuparr')">Auto-Detect</button>
+          <button class="s-test" id="test-cleanuparr" onclick="testConn('cleanuparr')">Test</button>
+        </div>
+      </div>
+      <div id="result-cleanuparr" class="s-test-result"></div>
+      <div class="s-field">
+        <div class="s-label">Base URL</div>
+        <input class="s-input" id="sf-cleanuparr_url" placeholder="http://host.docker.internal:11011" type="text">
+        <div class="s-hint">Optional. Used to trigger Cleanuparr's Download Cleaner after SUBmarine removes Plex/Radarr references.</div>
+      </div>
+      <div class="s-field">
+        <div class="s-label">API Key <span class="set-badge" id="badge-cleanuparr_api_key" style="display:none">SET</span></div>
+        <input class="s-input" id="sf-cleanuparr_api_key" placeholder="Leave blank to keep existing key" type="password" autocomplete="new-password">
+        <div class="s-hint">Find this in Cleanuparr Account Settings. <a href="https://cleanuparr.github.io/Cleanuparr/docs/configuration/stats/" target="_blank" rel="noopener noreferrer">Cleanuparr API guide</a></div>
+      </div>
+    </div>
+
+    <!-- Torrent Client -->
+    <div class="s-section">
+      <div class="s-section-head">
+        <div class="s-section-title">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h9M2 7h9M4 10h5" stroke-linecap="round"/><circle cx="3" cy="2.5" r="1" fill="currentColor" stroke="none"/><circle cx="10" cy="10.5" r="1" fill="currentColor" stroke="none"/></svg>
+          Torrent Client
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="s-test" id="discover-torrent_client" onclick="discoverService('torrent_client')">Auto-Detect</button>
+          <button class="s-test" id="test-torrent_client" onclick="testConn('torrent_client')">Test</button>
+        </div>
+      </div>
+      <div id="result-torrent_client" class="s-test-result"></div>
+      <div class="s-field">
+        <div class="s-label">Client Type</div>
+        <select class="s-input" id="sf-torrent_client_type">
+          <option value="">Not configured</option>
+          <option value="qbittorrent">qBittorrent</option>
+          <option value="transmission">Transmission</option>
+        </select>
+        <div class="s-hint">Used for complete deletion of original and cross-seed torrent entries with data.</div>
+      </div>
+      <div class="s-field">
+        <div class="s-label">Base URL</div>
+        <input class="s-input" id="sf-torrent_client_url" placeholder="http://host.docker.internal:8080" type="text">
+        <div class="s-hint">For Transmission, the base URL is enough; SUBmarine will use <code style="color:var(--phosphor);font-family:var(--mono)">/transmission/rpc</code>.</div>
+      </div>
+      <div class="s-field">
+        <div class="s-label">Username</div>
+        <input class="s-input" id="sf-torrent_client_username" placeholder="Optional username" type="text" autocomplete="username">
+      </div>
+      <div class="s-field">
+        <div class="s-label">Password <span class="set-badge" id="badge-torrent_client_password" style="display:none">SET</span></div>
+        <input class="s-input" id="sf-torrent_client_password" placeholder="Leave blank to keep existing password" type="password" autocomplete="new-password">
+      </div>
+    </div>
+
     <!-- Advanced -->
     <div class="s-section">
       <div class="s-section-head">
@@ -1184,6 +1256,16 @@
         <div class="s-label">Sync Workers</div>
         <input class="s-input workers" id="sf-sync_workers" placeholder="8" type="number" min="1" max="24">
         <div class="s-hint">Parallel TMDB API threads during a ping. Higher = faster but more rate-limit risk. Default: 8.</div>
+      </div>
+      <div class="s-field">
+        <div class="s-label">Log Verbosity</div>
+        <select class="s-input" id="sf-log_level">
+          <option value="DEBUG">Debug</option>
+          <option value="INFO">Normal</option>
+          <option value="WARNING">Warnings Only</option>
+          <option value="ERROR">Errors Only</option>
+        </select>
+        <div class="s-hint">Writes to stdout, so Docker logs will show it. Use Debug while tracing Radarr torrent deletion.</div>
       </div>
     </div>
 
@@ -1657,23 +1739,49 @@ async function handleRemove(id) {
 function renderRemovalConfirmation(id, t, preview) {
   const radarrReady = !!preview.radarr_movie;
   const downloadsReady = radarrReady && !preview.queue_error && preview.downloads.length > 0;
+  const torrentMatches = preview.torrent_matches || [];
+  const torrentReady = preview.torrent_client_configured && !preview.torrent_error && torrentMatches.length > 0;
+  const torrentNames = torrentMatches.slice(0, 3).map(match => match.name).filter(Boolean);
+  const torrentSummary = torrentNames.length
+    ? ` Matches: ${torrentNames.map(esc).join(', ')}${torrentMatches.length > torrentNames.length ? ', ...' : ''}`
+    : '';
   const status = [
     preview.radarr_error,
     preview.queue_error,
+    preview.torrent_error,
     downloadsReady ? `${preview.downloads.length} active Radarr download${preview.downloads.length === 1 ? '' : 's'} found.` : '',
+    torrentReady ? `${torrentMatches.length} torrent-client match${torrentMatches.length === 1 ? '' : 'es'} found.` : '',
   ].filter(Boolean).map(esc).join('<br>');
   $('modal').innerHTML = `
     <button class="modal-close" onclick="closeModal()"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M2 2l10 10M12 2L2 12"/></svg></button>
     <div class="remove-confirm">
       <div class="modal-title">Remove ${esc(t.title)}?</div>
-      <div class="remove-warning">Choose each action deliberately. Deleting from Plex permanently removes the media file from disk. Nothing is deleted until you confirm.</div>
+      <div class="remove-warning">Choose a track, then adjust the advanced switches if needed. Nothing is deleted until you confirm twice.</div>
       ${status ? `<div class="remove-status">${status}</div>` : ''}
+      <div class="remove-presets">
+        <button class="remove-preset" type="button" data-remove-preset="delete" onclick="applyRemovalPreset('delete')">
+          <div class="remove-preset-title">Delete everything now</div>
+          <div class="remove-preset-sub">Remove Radarr tracking, delete Radarr-managed files, delete Plex when available, and clear matched torrent-client data.</div>
+        </button>
+        <button class="remove-preset" type="button" data-remove-preset="uncouple" onclick="applyRemovalPreset('uncouple')" ${preview.cleanuparr_available && radarrReady ? '' : 'disabled'}>
+          <div class="remove-preset-title">Uncouple, keep seeding</div>
+          <div class="remove-preset-sub">Remove from Radarr but leave the torrent client alone so Cleanuparr can clean it after your seed rules are met.</div>
+        </button>
+      </div>
+      <div class="modal-section-label">Advanced Switches</div>
       <div class="remove-options">
         <label class="remove-option">
-          <input id="rm-radarr" type="checkbox" ${radarrReady ? 'checked' : 'disabled'}>
+          <input id="rm-radarr" type="checkbox" ${radarrReady ? '' : 'disabled'} onchange="syncRemovalDependencies()">
           <span>
             <div class="remove-option-title">Remove from Radarr</div>
-            <div class="remove-option-sub">Stops Radarr tracking this movie. This option does not delete the media file.</div>
+            <div class="remove-option-sub">Stops Radarr tracking this movie. By itself, this does not delete media files.</div>
+          </span>
+        </label>
+        <label class="remove-option">
+          <input id="rm-radarr-files" type="checkbox" ${radarrReady ? '' : 'disabled'} onchange="syncRemovalDependencies()">
+          <span>
+            <div class="remove-option-title">Delete Radarr media files</div>
+            <div class="remove-option-sub">Passes <code>deleteFiles=true</code> to Radarr. This deletes the movie files/folder Radarr manages; hardlinked torrent data may still need download-client removal or Cleanuparr.</div>
           </span>
         </label>
         <label class="remove-option">
@@ -1690,27 +1798,84 @@ function renderRemovalConfirmation(id, t, preview) {
             <div class="remove-option-sub">Deletes ${preview.downloads.length} matching active download${preview.downloads.length === 1 ? '' : 's'} from the configured download client.</div>
           </span>
         </label>
+        <label class="remove-option">
+          <input id="rm-torrents" type="checkbox" ${torrentReady ? '' : 'disabled'}>
+          <span>
+            <div class="remove-option-title">Delete matched torrent-client entries with data</div>
+            <div class="remove-option-sub">Deletes ${torrentMatches.length} matched torrent${torrentMatches.length === 1 ? '' : 's'} from qBittorrent/Transmission with data. This is the cross-seed/original torrent cleanup path.${torrentSummary}</div>
+          </span>
+        </label>
+        <label class="remove-option">
+          <input id="rm-cleanuparr" type="checkbox" ${preview.cleanuparr_available ? '' : 'disabled'}>
+          <span>
+            <div class="remove-option-title">Trigger Cleanuparr Download Cleaner</div>
+            <div class="remove-option-sub">Runs Cleanuparr once after removal. Configure Cleanuparr's unlinked download and seeding rules to remove torrent-client files.</div>
+          </span>
+        </label>
       </div>
     </div>
     <div class="modal-foot">
       <button class="modal-btn ghost" onclick="closeModal()">Cancel</button>
       <button class="modal-btn danger" id="removeConfirmBtn" onclick="confirmMovieRemoval(${id})">Confirm deletion</button>
     </div>`;
+  applyRemovalPreset('delete');
+}
+
+function setRemovalChecked(id, checked) {
+  const el = $(id);
+  if (el && !el.disabled) el.checked = checked;
+}
+
+function applyRemovalPreset(mode) {
+  document.querySelectorAll('[data-remove-preset]').forEach(btn => btn.classList.toggle('on', btn.dataset.removePreset === mode));
+  if (mode === 'delete') {
+    setRemovalChecked('rm-radarr', true);
+    setRemovalChecked('rm-radarr-files', true);
+    setRemovalChecked('rm-plex', true);
+    setRemovalChecked('rm-downloads', true);
+    setRemovalChecked('rm-torrents', true);
+    setRemovalChecked('rm-cleanuparr', true);
+  } else if (mode === 'uncouple') {
+    setRemovalChecked('rm-radarr', true);
+    setRemovalChecked('rm-radarr-files', false);
+    setRemovalChecked('rm-plex', false);
+    setRemovalChecked('rm-downloads', false);
+    setRemovalChecked('rm-torrents', false);
+    setRemovalChecked('rm-cleanuparr', true);
+  }
+  syncRemovalDependencies();
+}
+
+function syncRemovalDependencies() {
+  const removeRadarr = $('rm-radarr');
+  const deleteRadarrFiles = $('rm-radarr-files');
+  if (deleteRadarrFiles && deleteRadarrFiles.checked && removeRadarr && !removeRadarr.disabled) {
+    removeRadarr.checked = true;
+  }
+  if (removeRadarr && !removeRadarr.checked && deleteRadarrFiles) {
+    deleteRadarrFiles.checked = false;
+  }
 }
 
 async function confirmMovieRemoval(id) {
+  syncRemovalDependencies();
   const removeRadarr = $('rm-radarr').checked;
+  const deleteRadarrFiles = $('rm-radarr-files').checked;
   const deletePlex = $('rm-plex').checked;
   const removeDownloads = $('rm-downloads').checked;
-  const chosen = [
-    removeRadarr ? 'remove the movie from Radarr' : '',
-    deletePlex ? 'permanently delete the Plex media file' : '',
-    removeDownloads ? 'remove the active download from the download client' : '',
-  ].filter(Boolean);
-  if (!chosen.length) {
+  const deleteTorrentMatches = $('rm-torrents').checked;
+  const triggerCleanuparr = $('rm-cleanuparr').checked;
+  if (!removeRadarr && !deleteRadarrFiles && !deletePlex && !removeDownloads && !deleteTorrentMatches) {
     toast('Select at least one removal action');
     return;
   }
+  const chosen = [
+    deleteRadarrFiles ? 'remove the movie from Radarr and delete Radarr-managed movie files' : (removeRadarr ? 'remove the movie from Radarr' : ''),
+    deletePlex ? 'permanently delete the Plex media file' : '',
+    removeDownloads ? 'remove the active download from the download client' : '',
+    deleteTorrentMatches ? 'delete matched torrent-client entries with data' : '',
+    triggerCleanuparr ? 'trigger Cleanuparr Download Cleaner' : '',
+  ].filter(Boolean);
   if (!window.confirm(`Confirm that you want to ${chosen.join(', ')}?`)) return;
 
   const btn = $('removeConfirmBtn');
@@ -1723,8 +1888,11 @@ async function confirmMovieRemoval(id) {
       body: JSON.stringify({
         confirmed: true,
         remove_radarr: removeRadarr,
+        delete_radarr_files: deleteRadarrFiles,
         delete_plex: deletePlex,
         remove_downloads: removeDownloads,
+        delete_torrent_matches: deleteTorrentMatches,
+        trigger_cleanuparr: triggerCleanuparr,
       }),
     });
     const d = await r.json();
@@ -1887,14 +2055,25 @@ async function openSettings() {
   $('sf-sonarr_url').value    = s.sonarr_url || '';
   $('sf-sonarr_api_key').value = '';
   $('sf-sonarr_api_key').placeholder = s.sonarr_api_key_set ? 'Key set — leave blank to keep' : 'Enter Sonarr API key';
+  $('sf-cleanuparr_url').value = s.cleanuparr_url || '';
+  $('sf-cleanuparr_api_key').value = '';
+  $('sf-cleanuparr_api_key').placeholder = s.cleanuparr_api_key_set ? 'Key set — leave blank to keep' : 'Enter Cleanuparr API key';
+  $('sf-torrent_client_type').value = s.torrent_client_type || '';
+  $('sf-torrent_client_url').value = s.torrent_client_url || '';
+  $('sf-torrent_client_username').value = s.torrent_client_username || '';
+  $('sf-torrent_client_password').value = '';
+  $('sf-torrent_client_password').placeholder = s.torrent_client_password_set ? 'Password set — leave blank to keep' : 'Enter torrent client password';
   $('sf-sync_workers').value  = s.sync_workers || '8';
+  $('sf-log_level').value     = s.log_level || 'INFO';
   // Set badges
-  const badges = {plex_token: s.plex_token_set, tmdb_api_key: s.tmdb_api_key_set, radarr_api_key: s.radarr_api_key_set, sonarr_api_key: s.sonarr_api_key_set};
+  const badges = {plex_token: s.plex_token_set, tmdb_api_key: s.tmdb_api_key_set, radarr_api_key: s.radarr_api_key_set, sonarr_api_key: s.sonarr_api_key_set, cleanuparr_api_key: s.cleanuparr_api_key_set, torrent_client_password: s.torrent_client_password_set};
   Object.entries(badges).forEach(([k,v]) => { const b = $('badge-'+k); if(b) b.style.display = v ? 'inline' : 'none'; });
   // Reset test results
-  ['plex','tmdb','radarr','sonarr'].forEach(t => {
+  const testLabels = {plex:'Test Connection', tmdb:'Test Key', radarr:'Test', sonarr:'Test', cleanuparr:'Test', torrent_client:'Test'};
+  ['plex','tmdb','radarr','sonarr','cleanuparr','torrent_client'].forEach(t => {
     const r = $('result-'+t); if(r) { r.className = 's-test-result'; r.textContent = ''; }
-    const b = $('test-'+t); if(b) { b.className = 's-test'; b.textContent = t === 'tmdb' ? 'Test Key' : 'Test Connection'; }
+    const b = $('test-'+t); if(b) { b.className = 's-test'; b.textContent = testLabels[t] || 'Test'; }
+    const d = $('discover-'+t); if(d) { d.className = 's-test'; d.textContent = 'Auto-Detect'; }
   });
   $('drawerBg').classList.add('on');
   setTimeout(() => $('drawer').classList.add('on'), 10);
@@ -1913,17 +2092,26 @@ async function saveSettings() {
     tv_library_id:    $('sf-tv_library_id').value.trim(),
     radarr_url:       $('sf-radarr_url').value.trim(),
     sonarr_url:       $('sf-sonarr_url').value.trim(),
+    cleanuparr_url:   $('sf-cleanuparr_url').value.trim(),
+    torrent_client_type: $('sf-torrent_client_type').value,
+    torrent_client_url: $('sf-torrent_client_url').value.trim(),
+    torrent_client_username: $('sf-torrent_client_username').value.trim(),
     sync_workers:     $('sf-sync_workers').value.trim(),
+    log_level:        $('sf-log_level').value,
   };
   // Only include secrets if user typed something new
   const token = $('sf-plex_token').value;
   const tmdb  = $('sf-tmdb_api_key').value;
   const radarrKey = $('sf-radarr_api_key').value;
   const sonarrKey = $('sf-sonarr_api_key').value;
+  const cleanuparrKey = $('sf-cleanuparr_api_key').value;
+  const torrentPassword = $('sf-torrent_client_password').value;
   if (token)     payload.plex_token = token;
   if (tmdb)      payload.tmdb_api_key = tmdb;
   if (radarrKey) payload.radarr_api_key = radarrKey;
   if (sonarrKey) payload.sonarr_api_key = sonarrKey;
+  if (cleanuparrKey) payload.cleanuparr_api_key = cleanuparrKey;
+  if (torrentPassword) payload.torrent_client_password = torrentPassword;
 
   const res = await fetch('/api/settings', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
   const d = await res.json();
@@ -1938,7 +2126,7 @@ async function saveSettings() {
 async function testConn(target) {
   const btn = $('test-' + target);
   const res = $('result-' + target);
-  const origLabel = { plex:'Test Connection', tmdb:'Test Key', radarr:'Test', sonarr:'Test' }[target] || 'Test';
+  const origLabel = { plex:'Test Connection', tmdb:'Test Key', radarr:'Test', sonarr:'Test', cleanuparr:'Test', torrent_client:'Test' }[target] || 'Test';
   btn.textContent = 'Testing…'; btn.className = 's-test';
   res.className = 's-test-result'; res.textContent = '';
 
@@ -1959,6 +2147,16 @@ async function testConn(target) {
     payload.sonarr_url = $('sf-sonarr_url').value.trim();
     const k = $('sf-sonarr_api_key').value;
     if (k) payload.sonarr_api_key = k;
+  } else if (target === 'cleanuparr') {
+    payload.cleanuparr_url = $('sf-cleanuparr_url').value.trim();
+    const k = $('sf-cleanuparr_api_key').value;
+    if (k) payload.cleanuparr_api_key = k;
+  } else if (target === 'torrent_client') {
+    payload.torrent_client_type = $('sf-torrent_client_type').value;
+    payload.torrent_client_url = $('sf-torrent_client_url').value.trim();
+    payload.torrent_client_username = $('sf-torrent_client_username').value.trim();
+    const p = $('sf-torrent_client_password').value;
+    if (p) payload.torrent_client_password = p;
   }
 
   try {
@@ -1977,15 +2175,20 @@ async function testConn(target) {
   }
 }
 
-async function discoverArr(appName) {
+async function discoverService(appName) {
   const btn = $('discover-' + appName);
   const res = $('result-' + appName);
   const urlField = $('sf-' + appName + '_url');
   btn.textContent = 'Scanning…'; btn.className = 's-test';
   res.className = 's-test-result'; res.textContent = '';
 
-  // Use whatever's in the URL field as a hint (extract host only)
-  const hint = (urlField.value || '').replace(/https?:\/\//, '').split(':')[0].split('/')[0];
+  const hint = (urlField.value || '').trim();
+  const missMsg = {
+    radarr: 'standard Radarr ports (7878, 7879)',
+    sonarr: 'standard Sonarr ports (8989, 8990)',
+    cleanuparr: 'standard Cleanuparr ports (11011, 8080)',
+    torrent_client: 'qBittorrent ports (8080, 8081, 8090, 8091) or Transmission port (9091)',
+  };
 
   try {
     const r = await fetch('/api/settings/discover', {
@@ -1996,14 +2199,22 @@ async function discoverArr(appName) {
     const d = await r.json();
     const hit = d.found && d.found[appName];
     if (hit) {
-      urlField.value = hit;
+      if (appName === 'torrent_client') {
+        $('sf-torrent_client_type').value = hit.type || '';
+        urlField.value = hit.url || '';
+      } else {
+        urlField.value = hit;
+      }
+      const label = appName === 'torrent_client'
+        ? ((hit.type === 'qbittorrent' ? 'qBittorrent' : 'Transmission') + ' at ' + hit.url)
+        : (appName + ' at ' + hit);
       res.className = 's-test-result ok';
-      res.textContent = '✓ Found at ' + hit + ' — now enter your API key and Test';
+      res.textContent = '✓ Found ' + label + ' — now add credentials if needed and Test';
       btn.className = 's-test ok';
       btn.textContent = '✓ Auto-Detect';
     } else {
       res.className = 's-test-result err';
-      res.textContent = '✗ Not found on standard ports (7878, 8989). Enter URL manually.';
+      res.textContent = '✗ Not found on ' + (missMsg[appName] || 'standard ports') + '. Enter URL manually.';
       btn.className = 's-test err';
       btn.textContent = '✗ Auto-Detect';
     }
@@ -2013,6 +2224,10 @@ async function discoverArr(appName) {
     btn.className = 's-test err';
     btn.textContent = '✗ Auto-Detect';
   }
+}
+
+function discoverArr(appName) {
+  return discoverService(appName);
 }
 
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('drawer').classList.contains('on')) closeSettings(); });

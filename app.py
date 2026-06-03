@@ -14,12 +14,35 @@ from defusedxml import ElementTree as ET
 from flask import Flask, jsonify, render_template, request, Response
 
 # --- Logging ---
+LOG_LEVELS = {
+    'DEBUG': logging.DEBUG,
+    'INFO': logging.INFO,
+    'WARNING': logging.WARNING,
+    'ERROR': logging.ERROR,
+}
+
+def _normalize_log_level(value, fallback='INFO'):
+    level = str(value or '').strip().upper()
+    return level if level in LOG_LEVELS else fallback
+
+DEFAULT_LOG_LEVEL = _normalize_log_level(os.getenv('LOG_LEVEL', 'INFO'))
+
 logging.basicConfig(
-    level=logging.INFO,
+    level=LOG_LEVELS[DEFAULT_LOG_LEVEL],
     format='%(asctime)s [%(levelname)s] %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 log = logging.getLogger('plexarr')
+log.setLevel(LOG_LEVELS[DEFAULT_LOG_LEVEL])
+
+def apply_log_level(level):
+    """Apply the selected log level to stdout logging used by Docker logs."""
+    normalized = _normalize_log_level(level, DEFAULT_LOG_LEVEL)
+    numeric_level = LOG_LEVELS[normalized]
+    logging.getLogger().setLevel(numeric_level)
+    log.setLevel(numeric_level)
+    logging.getLogger('werkzeug').setLevel(numeric_level)
+    return normalized
 
 app = Flask(__name__)
 
@@ -57,6 +80,7 @@ log.info(f"  TV_LIBRARY_ID:    {TV_LIB_ID}")
 log.info(f"  TMDB_API_KEY:     {'SET' if TMDB_API_KEY else 'NOT SET'}")
 log.info(f"  DB_PATH:          {DB_PATH}")
 log.info(f"  SYNC_WORKERS:     {SYNC_WORKERS}")
+log.info(f"  LOG_LEVEL:        {DEFAULT_LOG_LEVEL}")
 
 # --- Services ---
 # Canonical US subscription streaming services (flatrate only), ordered by prominence.
@@ -201,6 +225,13 @@ def init_db():
         'radarr_api_key':    '',
         'sonarr_url':        '',
         'sonarr_api_key':    '',
+        'cleanuparr_url':    '',
+        'cleanuparr_api_key': '',
+        'torrent_client_type': '',
+        'torrent_client_url': '',
+        'torrent_client_username': '',
+        'torrent_client_password': '',
+        'log_level':         DEFAULT_LOG_LEVEL,
     }
     for k, v in defaults.items():
         db.execute('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)', (k, v))
@@ -215,6 +246,7 @@ def init_db():
 
     db.commit()
     db.close()
+    apply_log_level(get_setting('log_level', DEFAULT_LOG_LEVEL))
     log.info("DB initialized OK")
 
 # --- Settings helpers ---
@@ -817,6 +849,9 @@ def api_setup_save():
         'tmdb_api_key', 'sync_workers',
         'radarr_url', 'radarr_api_key',
         'sonarr_url', 'sonarr_api_key',
+        'cleanuparr_url', 'cleanuparr_api_key',
+        'torrent_client_type', 'torrent_client_url',
+        'torrent_client_username', 'torrent_client_password',
     }
     db = get_db()
     for key, value in data.items():
@@ -848,6 +883,15 @@ def api_settings_get():
         'sonarr_url':       s.get('sonarr_url', ''),
         'sonarr_api_key':   '',
         'sonarr_api_key_set': bool(s.get('sonarr_api_key', '')),
+        'cleanuparr_url':   s.get('cleanuparr_url', ''),
+        'cleanuparr_api_key': '',
+        'cleanuparr_api_key_set': bool(s.get('cleanuparr_api_key', '')),
+        'torrent_client_type': s.get('torrent_client_type', ''),
+        'torrent_client_url': s.get('torrent_client_url', ''),
+        'torrent_client_username': s.get('torrent_client_username', ''),
+        'torrent_client_password': '',
+        'torrent_client_password_set': bool(s.get('torrent_client_password', '')),
+        'log_level':        _normalize_log_level(s.get('log_level', DEFAULT_LOG_LEVEL), DEFAULT_LOG_LEVEL),
     })
 
 @app.route('/api/settings', methods=['POST'])
@@ -860,6 +904,10 @@ def api_settings_post():
         'plex_ip', 'plex_port', 'plex_token', 'movie_library_id',
         'tv_library_id', 'tmdb_api_key', 'sync_workers',
         'radarr_url', 'radarr_api_key', 'sonarr_url', 'sonarr_api_key',
+        'cleanuparr_url', 'cleanuparr_api_key',
+        'torrent_client_type', 'torrent_client_url',
+        'torrent_client_username', 'torrent_client_password',
+        'log_level',
     }
     db = get_db()
     updated = []
@@ -869,11 +917,19 @@ def api_settings_post():
         # Skip masked placeholder values (user didn't edit the field)
         if '••••••••' in str(value):
             continue
+        if key == 'log_level':
+            value = _normalize_log_level(value, '')
+            if not value:
+                return jsonify({'ok': False, 'error': 'Invalid log level'}), 400
+        if key == 'torrent_client_type':
+            value = _torrent_client_type(value)
         db.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)',
                    (key, str(value).strip()))
         updated.append(key)
     db.commit()
     db.close()
+    if 'log_level' in updated:
+        apply_log_level(data.get('log_level'))
     log.info(f"[SETTINGS] Updated: {updated}")
     return jsonify({'ok': True, 'updated': updated})
 
@@ -894,12 +950,262 @@ def _removal_title(title_id):
     """Load the internal identifiers needed for a remote removal."""
     db = get_db()
     row = db.execute(
-        '''SELECT id, title, media_type, plex_rating_key, tmdb_id
+        '''SELECT id, title, year, media_type, plex_rating_key, tmdb_id
            FROM titles WHERE id=?''',
         (title_id,)
     ).fetchone()
     db.close()
     return dict(row) if row else None
+
+def _response_excerpt(response, limit=600):
+    text = str(getattr(response, 'text', '') or '').replace('\n', ' ').strip()
+    return text[:limit] if text else '<empty>'
+
+def _torrent_client_type(value=None):
+    value = str(value if value is not None else get_setting('torrent_client_type')).strip().lower()
+    return value if value in ('qbittorrent', 'transmission') else ''
+
+def _torrent_client_configured():
+    return bool(_torrent_client_type() and _normalize_url(get_setting('torrent_client_url')))
+
+def _qbittorrent_session(url=None, username=None, password=None):
+    url = _normalize_url(url if url is not None else get_setting('torrent_client_url'))
+    username = get_setting('torrent_client_username') if username is None else username
+    password = get_setting('torrent_client_password') if password is None else password
+    session = requests.Session()
+    if username or password:
+        response = session.post(
+            url + '/api/v2/auth/login',
+            data={'username': username, 'password': password},
+            timeout=8,
+        )
+        if response.status_code >= 400 or response.text.strip().lower() not in ('ok.', 'ok'):
+            log.warning(f"[TORRENT] qBittorrent login failed HTTP {response.status_code}: {_response_excerpt(response)}")
+            response.raise_for_status()
+            raise ValueError('qBittorrent login failed')
+    return url, session
+
+def _qbittorrent_list_torrents(url=None, username=None, password=None):
+    url, session = _qbittorrent_session(url, username, password)
+    response = session.get(url + '/api/v2/torrents/info', timeout=12)
+    if response.status_code >= 400:
+        log.warning(f"[TORRENT] qBittorrent list failed HTTP {response.status_code}: {_response_excerpt(response)}")
+    response.raise_for_status()
+    torrents = response.json()
+    if not isinstance(torrents, list):
+        raise ValueError('qBittorrent torrent list was not an array')
+    return [
+        {
+            'id': str(item.get('hash') or ''),
+            'name': str(item.get('name') or ''),
+            'category': str(item.get('category') or ''),
+            'tags': str(item.get('tags') or ''),
+            'status': str(item.get('state') or ''),
+            'save_path': str(item.get('save_path') or ''),
+            'content_path': str(item.get('content_path') or ''),
+            'client': 'qBittorrent',
+        }
+        for item in torrents
+        if item.get('hash')
+    ]
+
+def _qbittorrent_delete_torrents(ids, delete_files=True):
+    url, session = _qbittorrent_session()
+    response = session.post(
+        url + '/api/v2/torrents/delete',
+        data={'hashes': '|'.join(ids), 'deleteFiles': 'true' if delete_files else 'false'},
+        timeout=12,
+    )
+    if response.status_code >= 400:
+        log.warning(f"[TORRENT] qBittorrent delete failed HTTP {response.status_code}: {_response_excerpt(response)}")
+    response.raise_for_status()
+
+def _transmission_rpc_url(url):
+    url = _normalize_url(url).rstrip('/')
+    return url if url.endswith('/rpc') else url + '/transmission/rpc'
+
+def _transmission_rpc(method, arguments=None, url=None, username=None, password=None):
+    rpc_url = _transmission_rpc_url(url if url is not None else get_setting('torrent_client_url'))
+    username = get_setting('torrent_client_username') if username is None else username
+    password = get_setting('torrent_client_password') if password is None else password
+    auth = (username, password) if username or password else None
+    headers = {}
+    payload = {'method': method, 'arguments': arguments or {}}
+    response = requests.post(rpc_url, json=payload, headers=headers, auth=auth, timeout=12)
+    if response.status_code == 409:
+        session_id = response.headers.get('X-Transmission-Session-Id')
+        headers['X-Transmission-Session-Id'] = session_id
+        response = requests.post(rpc_url, json=payload, headers=headers, auth=auth, timeout=12)
+    if response.status_code >= 400:
+        log.warning(f"[TORRENT] Transmission RPC failed HTTP {response.status_code}: {_response_excerpt(response)}")
+    response.raise_for_status()
+    data = response.json()
+    if data.get('result') != 'success':
+        raise ValueError(f"Transmission RPC failed: {data.get('result', 'unknown')}")
+    return data.get('arguments', {})
+
+def _transmission_list_torrents(url=None, username=None, password=None):
+    data = _transmission_rpc(
+        'torrent-get',
+        {'fields': ['id', 'hashString', 'name', 'downloadDir', 'status', 'labels']},
+        url,
+        username,
+        password,
+    )
+    torrents = data.get('torrents', [])
+    if not isinstance(torrents, list):
+        raise ValueError('Transmission torrent list was not an array')
+    return [
+        {
+            'id': item.get('id'),
+            'hash': str(item.get('hashString') or ''),
+            'name': str(item.get('name') or ''),
+            'category': ','.join(item.get('labels') or []),
+            'tags': '',
+            'status': str(item.get('status') or ''),
+            'save_path': str(item.get('downloadDir') or ''),
+            'content_path': str(item.get('downloadDir') or ''),
+            'client': 'Transmission',
+        }
+        for item in torrents
+        if item.get('id') is not None
+    ]
+
+def _transmission_delete_torrents(ids, delete_files=True):
+    _transmission_rpc('torrent-remove', {'ids': ids, 'delete-local-data': delete_files})
+
+def _list_torrent_client_entries(client_type=None, url=None, username=None, password=None):
+    client_type = _torrent_client_type(client_type)
+    if client_type == 'qbittorrent':
+        return _qbittorrent_list_torrents(url, username, password)
+    if client_type == 'transmission':
+        return _transmission_list_torrents(url, username, password)
+    raise ValueError('Unsupported torrent client')
+
+def _delete_torrent_client_entries(ids, delete_files=True):
+    client_type = _torrent_client_type()
+    log.info(f"[TORRENT] Delete start client={client_type} count={len(ids)} delete_files={delete_files}")
+    if client_type == 'qbittorrent':
+        return _qbittorrent_delete_torrents([str(item) for item in ids], delete_files)
+    if client_type == 'transmission':
+        return _transmission_delete_torrents(ids, delete_files)
+    raise ValueError('Unsupported torrent client')
+
+def _match_text(value):
+    return re.sub(r'\s+', ' ', re.sub(r'[^a-z0-9]+', ' ', str(value or '').lower())).strip()
+
+def _torrent_match_terms(title, year='', radarr_movie=None):
+    title_text = _match_text(title)
+    year = str(year or '').strip()
+    terms = [title_text]
+    if year:
+        terms.append(f"{title_text} {year}")
+    if radarr_movie:
+        for value in (radarr_movie.get('title'), radarr_movie.get('path'), radarr_movie.get('movie_file_path')):
+            text = _match_text(value)
+            if text:
+                terms.append(text)
+    return [term for term in dict.fromkeys(terms) if term]
+
+def _torrent_entry_matches(entry, terms, year=''):
+    text = _match_text(' '.join(str(entry.get(key) or '') for key in ('name', 'save_path', 'content_path', 'category', 'tags')))
+    if not text:
+        return False
+    year = str(year or '').strip()
+    for term in terms:
+        if term and term in text and (not year or year in text or len(term.split()) > 3):
+            return True
+    title_tokens = [token for token in terms[0].split() if len(token) > 2] if terms else []
+    if len(title_tokens) >= 2 and all(token in text for token in title_tokens) and (not year or year in text):
+        return True
+    return False
+
+def _torrent_matches_for_title(title, radarr=None):
+    if not _torrent_client_configured():
+        return {'configured': False, 'matches': [], 'error': ''}
+    try:
+        entries = _list_torrent_client_entries()
+        year = str(title.get('year') or '')
+        terms = _torrent_match_terms(title.get('title'), year, radarr.get('movie') if radarr else None)
+        matches = []
+        for entry in entries:
+            if not _torrent_entry_matches(entry, terms, year):
+                continue
+            matches.append({
+                'id': entry['id'],
+                'name': entry['name'],
+                'category': entry.get('category', ''),
+                'status': entry.get('status', ''),
+                'save_path': entry.get('save_path', ''),
+                'client': entry.get('client', ''),
+            })
+        log.info(f"[TORRENT] Matched torrent-client entries count={len(matches)} title={title.get('title')!r}")
+        return {'configured': True, 'matches': matches, 'error': ''}
+    except Exception as exc:
+        log.warning(f"[TORRENT] Torrent-client match failed: {type(exc).__name__}")
+        return {'configured': True, 'matches': [], 'error': 'Could not inspect torrent client'}
+
+def _cleanuparr_configured():
+    return bool(_normalize_url(get_setting('cleanuparr_url')) and get_setting('cleanuparr_api_key'))
+
+def _cleanuparr_headers():
+    key = get_setting('cleanuparr_api_key')
+    return {'X-Api-Key': key} if key else {}
+
+def _trigger_cleanuparr_download_cleaner():
+    url = _normalize_url(get_setting('cleanuparr_url'))
+    if not url or not get_setting('cleanuparr_api_key'):
+        raise ValueError('Cleanuparr is not configured')
+    log.info("[REMOVE] Cleanuparr DownloadCleaner trigger start")
+    response = requests.post(
+        url + '/api/jobs/DownloadCleaner/trigger',
+        headers=_cleanuparr_headers(),
+        timeout=8,
+    )
+    log.info(f"[REMOVE] Cleanuparr DownloadCleaner trigger HTTP {response.status_code}")
+    if response.status_code >= 400:
+        log.warning(f"[REMOVE] Cleanuparr trigger failed HTTP {response.status_code}: {_response_excerpt(response)}")
+    response.raise_for_status()
+
+def _queue_records_from_response(payload):
+    if isinstance(payload, list):
+        return payload
+    if isinstance(payload, dict):
+        records = payload.get('records', [])
+        return records if isinstance(records, list) else []
+    return []
+
+def _matching_radarr_downloads(records, movie_id):
+    downloads = []
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        try:
+            if int(record.get('movieId', -1)) != movie_id:
+                continue
+            downloads.append({
+                'id': int(record['id']),
+                'title': str(record.get('title') or 'Active download'),
+                'status': str(record.get('status') or ''),
+            })
+        except (TypeError, ValueError, KeyError):
+            continue
+    return downloads
+
+def _log_queue_sample(records, source):
+    if not log.isEnabledFor(logging.DEBUG):
+        return
+    sample = [
+        {
+            'id': record.get('id'),
+            'movieId': record.get('movieId'),
+            'status': record.get('status'),
+            'title': record.get('title'),
+        }
+        for record in records[:5]
+        if isinstance(record, dict)
+    ]
+    log.debug(f"[REMOVE] Radarr queue sample source={source} records={sample}")
 
 def _radarr_context(tmdb_id):
     """Resolve a movie and its active queue records without exposing Radarr IDs to writes."""
@@ -923,12 +1229,16 @@ def _radarr_context(tmdb_id):
 
     headers = {'X-Api-Key': key}
     try:
+        log.debug(f"[REMOVE] Radarr movie lookup start tmdb_id={tmdb_id}")
         response = requests.get(
             url + '/api/v3/movie',
             headers=headers,
             params={'tmdbId': tmdb_id},
             timeout=8,
         )
+        log.debug(f"[REMOVE] Radarr movie lookup HTTP {response.status_code} tmdb_id={tmdb_id}")
+        if response.status_code >= 400:
+            log.warning(f"[REMOVE] Radarr movie lookup failed HTTP {response.status_code}: {_response_excerpt(response)}")
         response.raise_for_status()
         movies = response.json()
         if not isinstance(movies, list):
@@ -948,35 +1258,41 @@ def _radarr_context(tmdb_id):
         result['movie'] = {
             'id': movie_id,
             'title': str(movie.get('title') or ''),
+            'path': str(movie.get('path') or ''),
+            'movie_file_path': str((movie.get('movieFile') or {}).get('path') or ''),
         }
+        log.info(f"[REMOVE] Radarr matched tmdb_id={tmdb_id} radarr_id={movie_id} title={result['movie']['title']!r}")
     except Exception as exc:
         log.warning(f"[REMOVE] Radarr movie lookup failed: {type(exc).__name__}")
         result['error'] = 'Could not look up this movie in Radarr'
         return result
 
-    try:
-        response = requests.get(
-            url + '/api/v3/queue',
-            headers=headers,
-            params=[('pageSize', 100), ('movieIds', movie_id)],
-            timeout=8,
-        )
-        response.raise_for_status()
-        queue = response.json()
-        records = queue.get('records', []) if isinstance(queue, dict) else []
-        for record in records:
-            try:
-                if int(record.get('movieId', -1)) != movie_id:
-                    continue
-                result['downloads'].append({
-                    'id': int(record['id']),
-                    'title': str(record.get('title') or 'Active download'),
-                    'status': str(record.get('status') or ''),
-                })
-            except (TypeError, ValueError, KeyError):
-                continue
-    except Exception as exc:
-        log.warning(f"[REMOVE] Radarr queue lookup failed: {type(exc).__name__}")
+    queue_sources = [
+        ('details', url + '/api/v3/queue/details', {'movieId': movie_id}),
+        ('paged', url + '/api/v3/queue', [('pageSize', 100), ('movieIds', movie_id)]),
+    ]
+    last_error = ''
+    queue_lookup_ok = False
+    for source, queue_url, params in queue_sources:
+        try:
+            log.debug(f"[REMOVE] Radarr queue lookup start source={source} radarr_id={movie_id}")
+            response = requests.get(queue_url, headers=headers, params=params, timeout=8)
+            log.debug(f"[REMOVE] Radarr queue lookup HTTP {response.status_code} source={source} radarr_id={movie_id}")
+            if response.status_code >= 400:
+                log.warning(f"[REMOVE] Radarr queue lookup failed HTTP {response.status_code} source={source}: {_response_excerpt(response)}")
+            response.raise_for_status()
+            records = _queue_records_from_response(response.json())
+            queue_lookup_ok = True
+            log.debug(f"[REMOVE] Radarr queue lookup returned records={len(records)} source={source} radarr_id={movie_id}")
+            _log_queue_sample(records, source)
+            result['downloads'] = _matching_radarr_downloads(records, movie_id)
+            log.info(f"[REMOVE] Radarr queue matched downloads={len(result['downloads'])} source={source} radarr_id={movie_id}")
+            if result['downloads']:
+                break
+        except Exception as exc:
+            last_error = type(exc).__name__
+            log.warning(f"[REMOVE] Radarr queue lookup failed source={source}: {last_error}")
+    if last_error and not queue_lookup_ok:
         result['queue_error'] = 'Could not look up active Radarr downloads'
     return result
 
@@ -1006,6 +1322,7 @@ def api_remove_preview(title_id):
         return jsonify({'ok': False, 'error': 'Sonarr removal is not wired yet'}), 400
 
     radarr = _radarr_context(title.get('tmdb_id'))
+    torrent = _torrent_matches_for_title(title, radarr)
     return jsonify({
         'ok': True,
         'title': title['title'],
@@ -1013,6 +1330,10 @@ def api_remove_preview(title_id):
         'radarr_configured': radarr['configured'],
         'radarr_movie': radarr['movie'],
         'downloads': radarr['downloads'],
+        'cleanuparr_available': _cleanuparr_configured(),
+        'torrent_client_configured': torrent['configured'],
+        'torrent_matches': torrent['matches'],
+        'torrent_error': torrent['error'],
         'radarr_error': radarr['error'],
         'queue_error': radarr['queue_error'],
     })
@@ -1026,9 +1347,14 @@ def api_remove_title(title_id):
         return jsonify({'ok': False, 'error': 'Deletion confirmation is required'}), 400
 
     remove_radarr = data.get('remove_radarr') is True
+    delete_radarr_files = data.get('delete_radarr_files') is True
     delete_plex = data.get('delete_plex') is True
     remove_downloads = data.get('remove_downloads') is True
-    if not any((remove_radarr, delete_plex, remove_downloads)):
+    trigger_cleanuparr = data.get('trigger_cleanuparr') is True
+    delete_torrent_matches = data.get('delete_torrent_matches') is True
+    if delete_radarr_files:
+        remove_radarr = True
+    if not any((remove_radarr, delete_plex, remove_downloads, delete_torrent_matches)):
         return jsonify({'ok': False, 'error': 'Select at least one removal action'}), 400
 
     title = _removal_title(title_id)
@@ -1036,6 +1362,13 @@ def api_remove_title(title_id):
         return jsonify({'ok': False, 'error': 'Title not found'}), 404
     if title['media_type'] != 'movie':
         return jsonify({'ok': False, 'error': 'Sonarr removal is not wired yet'}), 400
+
+    log.info(
+        f"[REMOVE] Confirmed title_id={title_id} title={title['title']!r} "
+        f"remove_radarr={remove_radarr} delete_radarr_files={delete_radarr_files} delete_plex={delete_plex} "
+        f"remove_downloads={remove_downloads} delete_torrent_matches={delete_torrent_matches} "
+        f"trigger_cleanuparr={trigger_cleanuparr}"
+    )
 
     radarr = None
     if remove_radarr or remove_downloads:
@@ -1048,6 +1381,15 @@ def api_remove_title(title_id):
             return jsonify({'ok': False, 'error': 'No active Radarr downloads were found for this movie'}), 400
     if delete_plex and not _plex_deletion_available(title):
         return jsonify({'ok': False, 'error': 'Plex deletion is unavailable for this title'}), 400
+    if trigger_cleanuparr and not _cleanuparr_configured():
+        return jsonify({'ok': False, 'error': 'Cleanuparr is not configured'}), 400
+    torrent = {'matches': []}
+    if delete_torrent_matches:
+        torrent = _torrent_matches_for_title(title, radarr)
+        if torrent['error']:
+            return jsonify({'ok': False, 'error': torrent['error']}), 502
+        if not torrent['matches']:
+            return jsonify({'ok': False, 'error': 'No matching torrent-client entries were found'}), 400
 
     completed = []
     radarr_url = _normalize_url(get_setting('radarr_url'))
@@ -1056,6 +1398,10 @@ def api_remove_title(title_id):
     try:
         if remove_downloads:
             for download in radarr['downloads']:
+                log.info(
+                    f"[REMOVE] Radarr queue delete start queue_id={download['id']} "
+                    f"radarr_id={radarr['movie']['id']} removeFromClient=true"
+                )
                 response = requests.delete(
                     f"{radarr_url}/api/v3/queue/{download['id']}",
                     headers=radarr_headers,
@@ -1067,6 +1413,9 @@ def api_remove_title(title_id):
                     },
                     timeout=8,
                 )
+                log.info(f"[REMOVE] Radarr queue delete HTTP {response.status_code} queue_id={download['id']}")
+                if response.status_code >= 400:
+                    log.warning(f"[REMOVE] Radarr queue delete failed HTTP {response.status_code}: {_response_excerpt(response)}")
                 response.raise_for_status()
             count = len(radarr['downloads'])
             completed.append(f"Removed {count} active download{'s' if count != 1 else ''} from the download client")
@@ -1081,19 +1430,36 @@ def api_remove_title(title_id):
                 headers=_plex_headers(plex_token),
                 timeout=8,
             )
+            log.info(f"[REMOVE] Plex delete HTTP {response.status_code} rating_key={rating_key}")
+            if response.status_code >= 400:
+                log.warning(f"[REMOVE] Plex delete failed HTTP {response.status_code}: {_response_excerpt(response)}")
             response.raise_for_status()
             completed.append('Deleted the movie from Plex and disk')
             _delete_local_title(title_id)
 
         if remove_radarr:
+            log.info(f"[REMOVE] Radarr movie delete start radarr_id={radarr['movie']['id']} deleteFiles={str(delete_radarr_files).lower()}")
             response = requests.delete(
                 f"{radarr_url}/api/v3/movie/{radarr['movie']['id']}",
                 headers=radarr_headers,
-                params={'deleteFiles': False, 'addImportExclusion': False},
+                params={'deleteFiles': delete_radarr_files, 'addImportExclusion': False},
                 timeout=8,
             )
+            log.info(f"[REMOVE] Radarr movie delete HTTP {response.status_code} radarr_id={radarr['movie']['id']}")
+            if response.status_code >= 400:
+                log.warning(f"[REMOVE] Radarr movie delete failed HTTP {response.status_code}: {_response_excerpt(response)}")
             response.raise_for_status()
-            completed.append('Removed the movie from Radarr')
+            completed.append('Removed the movie from Radarr and deleted Radarr-managed files' if delete_radarr_files else 'Removed the movie from Radarr')
+
+        if delete_torrent_matches:
+            match_ids = [match['id'] for match in torrent['matches']]
+            _delete_torrent_client_entries(match_ids, delete_files=True)
+            count = len(match_ids)
+            completed.append(f"Deleted {count} matched torrent-client entr{'y' if count == 1 else 'ies'} with data")
+
+        if trigger_cleanuparr:
+            _trigger_cleanuparr_download_cleaner()
+            completed.append('Triggered Cleanuparr Download Cleaner')
     except Exception as exc:
         log.warning(f"[REMOVE] Remote deletion failed: {type(exc).__name__}")
         return jsonify({
@@ -1196,6 +1562,42 @@ def api_settings_test():
             if '••••' in key or not key: key = get_setting('sonarr_api_key')
             return jsonify(_test_arr(url, key, 'Sonarr'))
 
+        elif target == 'cleanuparr':
+            url = _normalize_url(data.get('cleanuparr_url', '') or get_setting('cleanuparr_url'))
+            key = str(data.get('cleanuparr_api_key', '') or '')
+            if '••••' in key or not key:
+                key = get_setting('cleanuparr_api_key')
+            if not url:
+                return jsonify({'ok': False, 'msg': 'No URL provided for Cleanuparr'})
+            if not key:
+                return jsonify({'ok': False, 'msg': 'No API key provided for Cleanuparr'})
+            log.info(f"[TEST] Cleanuparr → {url}/api/stats")
+            r = requests.get(url + '/api/stats', headers={'X-Api-Key': key}, timeout=8)
+            if r.status_code in (401, 403):
+                return jsonify({'ok': False, 'msg': f'HTTP {r.status_code} — API key rejected by Cleanuparr'})
+            r.raise_for_status()
+            return jsonify({'ok': True, 'msg': f'Cleanuparr connected at {url}'})
+
+        elif target == 'torrent_client':
+            client_type = _torrent_client_type(data.get('torrent_client_type', get_setting('torrent_client_type')))
+            url = data.get('torrent_client_url', '') or get_setting('torrent_client_url')
+            username = str(data.get('torrent_client_username', get_setting('torrent_client_username')) or '')
+            password = str(data.get('torrent_client_password', '') or '')
+            if '••••' in password or not password:
+                password = get_setting('torrent_client_password')
+            if not client_type:
+                return jsonify({'ok': False, 'msg': 'Choose qBittorrent or Transmission'})
+            if not url:
+                return jsonify({'ok': False, 'msg': 'No URL provided for torrent client'})
+            if client_type == 'qbittorrent':
+                qbit_url, session = _qbittorrent_session(url, username, password)
+                r = session.get(qbit_url + '/api/v2/app/version', timeout=8)
+                r.raise_for_status()
+                return jsonify({'ok': True, 'msg': f'qBittorrent {r.text.strip()} connected'})
+            if client_type == 'transmission':
+                _transmission_rpc('session-get', {}, url, username, password)
+                return jsonify({'ok': True, 'msg': 'Transmission connected'})
+
         else:
             return jsonify({'ok': False, 'msg': 'Unknown test target'})
 
@@ -1212,33 +1614,60 @@ def api_settings_test():
 @app.route('/api/settings/discover', methods=['POST'])
 def api_settings_discover():
     """
-    Probe common LAN addresses and ports to auto-detect Radarr/Sonarr.
-    Scans host.docker.internal (the Mac Mini host) on the standard ports.
+    Probe common local/Docker addresses and ports to auto-detect integrations.
+    Discovery never saves settings; it only returns candidate URLs for the UI.
     """
     data = _json_object()
     if data is None:
         return jsonify({'ok': False, 'error': 'Expected a JSON object'}), 400
     targets = data.get('targets', ['radarr', 'sonarr'])
 
-    # Ports to probe per service
-    ARR_PORTS = {
+    arr_ports = {
         'radarr': [7878, 7879],
         'sonarr': [8989, 8990],
     }
+    cleanuparr_ports = [11011, 8080]
+    torrent_clients = {
+        'qbittorrent': {
+            'ports': [8080, 8081, 8090, 8091],
+            'hosts': ['qbittorrent', 'qbittorrentvpn', 'binhex-qbittorrentvpn', 'gluetun'],
+        },
+        'transmission': {
+            'ports': [9091],
+            'hosts': ['transmission', 'transmission-openvpn', 'transmissionvpn', 'gluetun'],
+        },
+    }
 
-    # Hosts to try: docker host gateway, plus any custom hint from the UI
-    base_hosts = ['host.docker.internal']
+    # Hosts to try: Docker host gateways, loopback for non-Docker runs, service DNS names,
+    # plus any custom hint from the UI.
+    base_hosts = ['host.docker.internal', 'host.containers.internal', 'localhost', '127.0.0.1']
     custom_hint = str(data.get('hint') or '').strip()
+    hint_host = ''
+    hint_port = None
     if custom_hint:
-        h = custom_hint.replace('http://','').replace('https://','').split('/')[0].split(':')[0]
-        if h and h not in base_hosts:
-            base_hosts.insert(0, h)
+        try:
+            parsed_hint = urlsplit(custom_hint if '://' in custom_hint else f'http://{custom_hint}')
+            hint_host = parsed_hint.hostname or ''
+            hint_port = parsed_hint.port
+        except ValueError:
+            hint_host = custom_hint.replace('http://','').replace('https://','').split('/')[0].split(':')[0]
+            hint_port = None
+        if hint_host and hint_host not in base_hosts:
+            base_hosts.insert(0, hint_host)
 
     found = {}
+    found_priority = {}
 
-    def probe(app_name, host, port):
+    def ordered(items):
+        return list(dict.fromkeys(item for item in items if item))
+
+    def record_found(app_name, result, priority):
+        if result and (app_name not in found_priority or priority < found_priority[app_name]):
+            found[app_name] = result
+            found_priority[app_name] = priority
+
+    def probe_arr(app_name, host, port):
         url = f'http://{host}:{port}'
-        # Try without a key first — if we get a 401 the service is there
         try:
             r = requests.get(f'{url}/api/v3/system/status', timeout=3)
             if r.status_code in (200, 401, 403):
@@ -1256,20 +1685,79 @@ def api_settings_discover():
             pass
         return None
 
-    with ThreadPoolExecutor(max_workers=12) as pool:
+    def probe_cleanuparr(host, port):
+        url = f'http://{host}:{port}'
+        for path in ('/health', '/api/stats'):
+            try:
+                r = requests.get(url + path, timeout=3, allow_redirects=False)
+                if r.status_code in (200, 204, 401, 403):
+                    log.info(f"[DISCOVER] cleanuparr found at {url} via {path} (HTTP {r.status_code})")
+                    return url
+            except Exception:
+                pass
+        return None
+
+    def probe_qbittorrent(host, port):
+        url = f'http://{host}:{port}'
+        try:
+            r = requests.get(url + '/api/v2/app/version', timeout=3, allow_redirects=False)
+            if r.status_code in (200, 401, 403):
+                log.info(f"[DISCOVER] qBittorrent found at {url} (HTTP {r.status_code})")
+                return {'type': 'qbittorrent', 'url': url}
+        except Exception:
+            pass
+        return None
+
+    def probe_transmission(host, port):
+        url = f'http://{host}:{port}'
+        try:
+            r = requests.post(
+                url + '/transmission/rpc',
+                json={'method': 'session-get', 'arguments': {}},
+                timeout=3,
+                allow_redirects=False,
+            )
+            if r.status_code in (200, 409, 401, 403):
+                log.info(f"[DISCOVER] Transmission found at {url} (HTTP {r.status_code})")
+                return {'type': 'transmission', 'url': url}
+        except Exception:
+            pass
+        return None
+
+    with ThreadPoolExecutor(max_workers=24) as pool:
         futures = {}
         for app_name in targets:
-            if app_name not in ARR_PORTS:
-                continue
-            for host in base_hosts:
-                for port in ARR_PORTS[app_name]:
-                    f = pool.submit(probe, app_name, host, port)
-                    futures[f] = (app_name, host, port)
+            if app_name in arr_ports:
+                hosts = ordered(base_hosts + [app_name])
+                ports = ordered(([hint_port] if hint_port else []) + arr_ports[app_name])
+                for host_index, host in enumerate(hosts):
+                    for port_index, port in enumerate(ports):
+                        priority = host_index * 100 + port_index
+                        f = pool.submit(probe_arr, app_name, host, port)
+                        futures[f] = (app_name, priority)
+            elif app_name == 'cleanuparr':
+                hosts = ordered(base_hosts + ['cleanuparr'])
+                ports = ordered(([hint_port] if hint_port else []) + cleanuparr_ports)
+                for host_index, host in enumerate(hosts):
+                    for port_index, port in enumerate(ports):
+                        priority = host_index * 100 + port_index
+                        f = pool.submit(probe_cleanuparr, host, port)
+                        futures[f] = (app_name, priority)
+            elif app_name in ('torrent_client', 'download_client'):
+                for client_index, (client_type, meta) in enumerate(torrent_clients.items()):
+                    hosts = ordered(base_hosts + meta['hosts'])
+                    ports = ordered(([hint_port] if hint_port else []) + meta['ports'])
+                    for host_index, host in enumerate(hosts):
+                        for port_index, port in enumerate(ports):
+                            priority = client_index * 10000 + host_index * 100 + port_index
+                            probe = probe_qbittorrent if client_type == 'qbittorrent' else probe_transmission
+                            f = pool.submit(probe, host, port)
+                            futures[f] = ('torrent_client', priority)
 
-        for future, (app_name, host, port) in futures.items():
+        for future in as_completed(futures):
+            app_name, priority = futures[future]
             result = future.result()
-            if result and app_name not in found:
-                found[app_name] = result
+            record_found(app_name, result, priority)
 
     log.info(f"[DISCOVER] Results: {found}")
     return jsonify({'found': found})
