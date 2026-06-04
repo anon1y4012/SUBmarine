@@ -2236,8 +2236,6 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('drawer'
 // ════ SETUP WIZARD ════
 let setupStep = 1;
 const SETUP_STEPS = 4;
-let plexVerified = false;
-let tmdbVerified = false;
 
 async function checkSetup() {
   try {
@@ -2369,7 +2367,6 @@ async function setupTestPlex() {
     btn.textContent = d.ok ? '✓ Test Connection' : '✗ Test Connection';
     msg.className = 'setup-test-msg ' + (d.ok ? 'ok' : 'err');
     msg.textContent = d.msg;
-    plexVerified = d.ok;
   } catch(e) {
     btn.className = 'setup-test-btn err'; btn.textContent = '✗ Test Connection';
     msg.className = 'setup-test-msg err'; msg.textContent = 'Network error';
@@ -2392,7 +2389,6 @@ async function setupTestTmdb() {
     btn.textContent = d.ok ? '✓ Verify Key' : '✗ Verify Key';
     msg.className = 'setup-test-msg ' + (d.ok ? 'ok' : 'err');
     msg.textContent = d.msg;
-    tmdbVerified = d.ok;
   } catch(e) {
     btn.className = 'setup-test-btn err'; btn.textContent = '✗ Verify Key';
     msg.className = 'setup-test-msg err'; msg.textContent = 'Network error';

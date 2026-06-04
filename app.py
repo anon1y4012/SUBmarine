@@ -45,6 +45,7 @@ def apply_log_level(level):
     return normalized
 
 app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = 64 * 1024
 
 @app.after_request
 def add_security_headers(response):
@@ -52,6 +53,37 @@ def add_security_headers(response):
     response.headers.setdefault('X-Frame-Options', 'DENY')
     response.headers.setdefault('Referrer-Policy', 'no-referrer')
     return response
+
+def _same_origin(origin, host_url):
+    try:
+        origin_parts = urlsplit(origin)
+        host_parts = urlsplit(host_url)
+    except ValueError:
+        return False
+    return (
+        origin_parts.scheme == host_parts.scheme
+        and origin_parts.hostname == host_parts.hostname
+        and (origin_parts.port or _default_port(origin_parts.scheme))
+            == (host_parts.port or _default_port(host_parts.scheme))
+    )
+
+def _default_port(scheme):
+    return 443 if scheme == 'https' else 80
+
+@app.before_request
+def reject_cross_site_writes():
+    if request.method in ('GET', 'HEAD', 'OPTIONS', 'TRACE'):
+        return None
+
+    fetch_site = request.headers.get('Sec-Fetch-Site', '').lower()
+    if fetch_site == 'cross-site':
+        return jsonify({'ok': False, 'error': 'Cross-site write rejected'}), 403
+
+    origin = request.headers.get('Origin')
+    if origin and not _same_origin(origin, request.host_url):
+        return jsonify({'ok': False, 'error': 'Cross-origin write rejected'}), 403
+
+    return None
 
 # --- Config ---
 def _bounded_workers(value, fallback=8):
@@ -467,11 +499,6 @@ def tmdb_tv_coverage(tmdb_id, plex_seasons):
         elif provider_seasons:
             partial[provider] = provider_seasons
     return full, partial
-
-def tmdb_tv_providers(tmdb_id, plex_seasons):
-    """Return providers that cover every regular season represented in Plex."""
-    providers, _ = tmdb_tv_coverage(tmdb_id, plex_seasons)
-    return providers
 
 # --- Sync worker (runs one title, returns result dict) ---
 def process_title(item, mtype, existing_tmdb_id):
@@ -1480,36 +1507,29 @@ def _test_arr(url, key, app_name):
 
     last_err = None
     for api_path in ['/api/v3/system/status', '/api/v1/system/status']:
-        for auth_style in ['header', 'param']:
-            try:
-                kwargs = dict(timeout=8)
-                if auth_style == 'header':
-                    kwargs['headers'] = {'X-Api-Key': key}
-                    test_url = url + api_path
-                else:
-                    test_url = url + api_path + f'?apikey={key}'
-                log.info(f"[TEST] {app_name} {auth_style} → {url}{api_path}")
-                r = requests.get(test_url, **kwargs)
-                if r.status_code == 401:
-                    return {'ok': False, 'msg': f'HTTP 401 — API key rejected by {app_name}'}
-                if r.status_code == 404:
-                    last_err = f'HTTP 404 on {api_path} — trying alternate API path'
-                    continue
-                r.raise_for_status()
-                d = r.json()
-                version = d.get('version', '?')
-                return {'ok': True, 'msg': f'{app_name} v{version} — connected at {url}'}
-            except requests.exceptions.ConnectionError:
-                last_err = f'Connection refused at {url} — is {app_name} running?'
-                log.warning(f"[TEST] {app_name} connection failed at {url}")
-                break  # No point trying auth styles if host is unreachable
-            except requests.exceptions.Timeout:
-                last_err = f'Timed out connecting to {url}'
-                break
-            except requests.exceptions.HTTPError as e:
-                last_err = f'HTTP {e.response.status_code} from {app_name}'
-            except Exception as e:
-                last_err = f'{type(e).__name__} while testing {app_name}'
+        try:
+            log.info(f"[TEST] {app_name} header → {url}{api_path}")
+            r = requests.get(url + api_path, headers={'X-Api-Key': key}, timeout=8)
+            if r.status_code == 401:
+                return {'ok': False, 'msg': f'HTTP 401 — API key rejected by {app_name}'}
+            if r.status_code == 404:
+                last_err = f'HTTP 404 on {api_path} — trying alternate API path'
+                continue
+            r.raise_for_status()
+            d = r.json()
+            version = d.get('version', '?')
+            return {'ok': True, 'msg': f'{app_name} v{version} — connected at {url}'}
+        except requests.exceptions.ConnectionError:
+            last_err = f'Connection refused at {url} — is {app_name} running?'
+            log.warning(f"[TEST] {app_name} connection failed at {url}")
+            break
+        except requests.exceptions.Timeout:
+            last_err = f'Timed out connecting to {url}'
+            break
+        except requests.exceptions.HTTPError as e:
+            last_err = f'HTTP {e.response.status_code} from {app_name}'
+        except Exception as e:
+            last_err = f'{type(e).__name__} while testing {app_name}'
 
     return {'ok': False, 'msg': last_err or f'Could not connect to {app_name}'}
 
