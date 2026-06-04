@@ -185,6 +185,7 @@ def init_db():
             media_type TEXT NOT NULL,
             thumb_url TEXT,
             tmdb_id TEXT,
+            plex_signature TEXT DEFAULT '',
             last_updated REAL DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS provider_links (
@@ -224,6 +225,11 @@ def init_db():
         if col not in existing_cols:
             log.info(f"Migrating DB: adding sync_status.{col}")
             db.execute(f"ALTER TABLE sync_status ADD COLUMN {col} INTEGER DEFAULT {defval}")
+
+    title_cols = {row[1] for row in db.execute("PRAGMA table_info(titles)")}
+    if 'plex_signature' not in title_cols:
+        log.info("Migrating DB: adding titles.plex_signature")
+        db.execute("ALTER TABLE titles ADD COLUMN plex_signature TEXT DEFAULT ''")
 
     # Migrate provider_links: drop leaving_date column if present (recreate table)
     pl_cols = {row[1] for row in db.execute("PRAGMA table_info(provider_links)")}
@@ -337,6 +343,18 @@ def _thumb_proxy_url(title_id, thumb_url):
     source = _without_plex_token(thumb_url)
     version = hashlib.sha256(source.encode('utf-8')).hexdigest()[:12]
     return f'/api/thumb/{title_id}?v={version}'
+
+def _plex_item_signature(item, media_type):
+    """Fingerprint Plex metadata that affects matching/provider coverage."""
+    seasons = ','.join(str(season) for season in sorted(item.get('plex_seasons') or []))
+    raw = '\x1f'.join([
+        str(media_type or ''),
+        str(item.get('title') or ''),
+        str(item.get('year') or ''),
+        _without_plex_token(str(item.get('thumb') or '')),
+        seasons,
+    ])
+    return hashlib.sha256(raw.encode('utf-8')).hexdigest()
 
 def fetch_plex_library(library_id, media_tag):
     _ip    = get_setting('plex_ip',    PLEX_IP)
@@ -579,35 +597,81 @@ def run_sync():
         all_items = [(m, 'movie') for m in movies] + [(t, 'tv') for t in tv]
         total = len(all_items)
         sync_workers = get_sync_workers()
-        log.info(f"[SYNC] {total} titles to process with {sync_workers} workers")
+        log.info(f"[SYNC] {total} Plex titles found")
 
-        # Upsert all titles into DB first (fast, serial)
         db = get_db()
+        existing_rows = db.execute(
+            'SELECT id, plex_rating_key, tmdb_id, plex_signature FROM titles'
+        ).fetchall()
+        existing_by_key = {
+            r['plex_rating_key']: {
+                'id': r['id'],
+                'tmdb_id': r['tmdb_id'],
+                'plex_signature': r['plex_signature'] or '',
+            }
+            for r in existing_rows
+        }
+
+        seen_keys = {item['key'] for item, _ in all_items}
+        stale_ids = [r['id'] for r in existing_rows if r['plex_rating_key'] not in seen_keys]
+        if stale_ids:
+            placeholders = ','.join('?' * len(stale_ids))
+            db.execute(f'DELETE FROM provider_links WHERE title_id IN ({placeholders})', stale_ids)
+            db.execute(f'DELETE FROM partial_provider_links WHERE title_id IN ({placeholders})', stale_ids)
+            db.execute(f'DELETE FROM titles WHERE id IN ({placeholders})', stale_ids)
+            log.info(f"[SYNC] Removed {len(stale_ids)} stale title{'s' if len(stale_ids) != 1 else ''} no longer present in Plex")
+
+        changed_items = []
+        cached_count = 0
+        now = time.time()
         for item, mtype in all_items:
+            item['plex_signature'] = _plex_item_signature(item, mtype)
+            existing = existing_by_key.get(item['key'])
+            changed = not existing or existing.get('plex_signature') != item['plex_signature'] or not existing.get('tmdb_id')
+            if changed:
+                changed_items.append((item, mtype))
+            else:
+                cached_count += 1
             db.execute('''
-                INSERT INTO titles (plex_rating_key, title, year, media_type, thumb_url, last_updated)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO titles (plex_rating_key, title, year, media_type, thumb_url, tmdb_id, plex_signature, last_updated)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(plex_rating_key) DO UPDATE SET
                     title=excluded.title, year=excluded.year,
-                    thumb_url=excluded.thumb_url, last_updated=excluded.last_updated
-            ''', (item['key'], item['title'], item['year'], mtype, item['thumb'], time.time()))
+                    media_type=excluded.media_type, thumb_url=excluded.thumb_url,
+                    plex_signature=excluded.plex_signature, last_updated=excluded.last_updated
+            ''', (
+                item['key'],
+                item['title'],
+                item['year'],
+                mtype,
+                item['thumb'],
+                existing.get('tmdb_id') if existing else None,
+                item['plex_signature'],
+                now,
+            ))
         db.commit()
 
-        # Fetch existing TMDB IDs to avoid re-querying
         keys = [item['key'] for item, _ in all_items]
         placeholders = ','.join('?' * len(keys))
         rows = db.execute(
             f'SELECT plex_rating_key, id, tmdb_id FROM titles WHERE plex_rating_key IN ({placeholders})',
             keys
-        ).fetchall()
+        ).fetchall() if keys else []
         db.close()
 
         key_to_row = {r['plex_rating_key']: {'id': r['id'], 'tmdb_id': r['tmdb_id']} for r in rows}
+        log.info(
+            f"[SYNC] Cache: {cached_count} unchanged, {len(changed_items)} changed/new, "
+            f"{len(stale_ids)} removed; TMDB workers={sync_workers}"
+        )
 
-        # Parallel TMDB resolution
-        set_sync_status(f'Resolving {total} titles via TMDB...', synced=0, total=total)
+        set_sync_status(
+            f'{cached_count} cached; resolving {len(changed_items)} changed title{"s" if len(changed_items) != 1 else ""} via TMDB...',
+            synced=cached_count,
+            total=total,
+        )
         results = {}
-        completed = 0
+        completed = cached_count
 
         with ThreadPoolExecutor(max_workers=sync_workers) as pool:
             future_to_key = {
@@ -617,7 +681,7 @@ def run_sync():
                     mtype,
                     key_to_row.get(item['key'], {}).get('tmdb_id')
                 ): item['key']
-                for item, mtype in all_items
+                for item, mtype in changed_items
             }
             for future in as_completed(future_to_key):
                 plex_key = future_to_key[future]
@@ -640,7 +704,10 @@ def run_sync():
                     )
                     log.info(f"[SYNC] {completed}/{total}")
 
-        # Write results back to DB (serial — SQLite doesn't like concurrent writes)
+        if not changed_items:
+            set_sync_status(f'All {total} titles unchanged; using cached providers.', synced=total, total=total)
+
+        # Write changed TMDB results back to DB (serial — SQLite doesn't like concurrent writes)
         set_sync_status('Writing results to database...', synced=completed, total=total)
         db = get_db()
         for plex_key, result in results.items():
@@ -667,14 +734,20 @@ def run_sync():
                 )
         db.commit()
 
-        finish_msg = f'Last sync: {datetime.now().strftime("%b %d %Y %H:%M")} ({total} titles)'
+        finish_msg = (
+            f'Last sync: {datetime.now().strftime("%b %d %Y %H:%M")} '
+            f'({total} titles; {cached_count} cached, {len(changed_items)} refreshed, {len(stale_ids)} removed)'
+        )
         db.execute(
             'UPDATE sync_status SET last_sync=?, is_syncing=0, sync_message=?, synced_count=?, total_count=? WHERE id=1',
             (time.time(), finish_msg, total, total)
         )
         db.commit()
         db.close()
-        log.info(f"[SYNC] Complete. {total} titles processed.")
+        log.info(
+            f"[SYNC] Complete. {total} titles processed "
+            f"({cached_count} cached, {len(changed_items)} refreshed, {len(stale_ids)} removed)."
+        )
 
 # --- API Routes ---
 @app.route('/')
@@ -1458,10 +1531,15 @@ def api_remove_title(title_id):
                 timeout=8,
             )
             log.info(f"[REMOVE] Plex delete HTTP {response.status_code} rating_key={rating_key}")
-            if response.status_code >= 400:
+            if response.status_code == 404:
+                log.info(f"[REMOVE] Plex item already absent rating_key={rating_key}")
+            elif response.status_code >= 400:
                 log.warning(f"[REMOVE] Plex delete failed HTTP {response.status_code}: {_response_excerpt(response)}")
-            response.raise_for_status()
-            completed.append('Deleted the movie from Plex and disk')
+            if response.status_code == 404:
+                completed.append('Removed stale Plex cache entry; Plex item was already absent')
+            else:
+                response.raise_for_status()
+                completed.append('Deleted the movie from Plex and disk')
             _delete_local_title(title_id)
 
         if remove_radarr:

@@ -1482,6 +1482,8 @@ const shortOf = s => SVC_SHORT[s] || s.slice(0,4).toUpperCase();
 let allTitles = [], filterType = 'all', filterCov = null;
 let selectedSvcs = new Set(), searchQ = '', view = 'grid';
 let selectedTitles = new Set();
+let batchRemovalItems = [];
+let batchInitialSkipped = 0;
 
 const $ = id => document.getElementById(id);
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
@@ -1821,6 +1823,59 @@ function renderRemovalConfirmation(id, t, preview) {
   applyRemovalPreset('delete');
 }
 
+function removalCapabilities(item) {
+  const preview = item.preview || {};
+  const radarrReady = !!preview.radarr_movie;
+  const downloads = preview.downloads || [];
+  const torrentMatches = preview.torrent_matches || [];
+  return {
+    radarrReady,
+    downloadsReady: radarrReady && !preview.queue_error && downloads.length > 0,
+    plexReady: !!preview.plex_available,
+    torrentReady: !!preview.torrent_client_configured && !preview.torrent_error && torrentMatches.length > 0,
+    cleanuparrReady: !!preview.cleanuparr_available,
+    downloadCount: downloads.length,
+    torrentCount: torrentMatches.length,
+  };
+}
+
+function checkedRemovalChoices() {
+  syncRemovalDependencies();
+  return {
+    removeRadarr: $('rm-radarr').checked,
+    deleteRadarrFiles: $('rm-radarr-files').checked,
+    deletePlex: $('rm-plex').checked,
+    removeDownloads: $('rm-downloads').checked,
+    deleteTorrentMatches: $('rm-torrents').checked,
+    triggerCleanuparr: $('rm-cleanuparr').checked,
+  };
+}
+
+function removalChoiceLabels(choices) {
+  return [
+    choices.deleteRadarrFiles ? 'remove from Radarr and delete Radarr files' : (choices.removeRadarr ? 'remove from Radarr' : ''),
+    choices.deletePlex ? 'delete from Plex and disk' : '',
+    choices.removeDownloads ? 'remove active downloads' : '',
+    choices.deleteTorrentMatches ? 'delete matched torrent-client data' : '',
+    choices.triggerCleanuparr ? 'trigger Cleanuparr' : '',
+  ].filter(Boolean);
+}
+
+function batchPayloadForItem(item, choices) {
+  const caps = removalCapabilities(item);
+  const payload = {
+    confirmed: true,
+    remove_radarr: choices.removeRadarr && caps.radarrReady,
+    delete_radarr_files: choices.deleteRadarrFiles && caps.radarrReady,
+    delete_plex: choices.deletePlex && caps.plexReady,
+    remove_downloads: choices.removeDownloads && caps.downloadsReady,
+    delete_torrent_matches: choices.deleteTorrentMatches && caps.torrentReady,
+    trigger_cleanuparr: choices.triggerCleanuparr && caps.cleanuparrReady,
+  };
+  const hasBaseAction = payload.remove_radarr || payload.delete_radarr_files || payload.delete_plex || payload.remove_downloads || payload.delete_torrent_matches;
+  return hasBaseAction ? payload : null;
+}
+
 function setRemovalChecked(id, checked) {
   const el = $(id);
   if (el && !el.disabled) el.checked = checked;
@@ -1858,24 +1913,18 @@ function syncRemovalDependencies() {
 }
 
 async function confirmMovieRemoval(id) {
-  syncRemovalDependencies();
-  const removeRadarr = $('rm-radarr').checked;
-  const deleteRadarrFiles = $('rm-radarr-files').checked;
-  const deletePlex = $('rm-plex').checked;
-  const removeDownloads = $('rm-downloads').checked;
-  const deleteTorrentMatches = $('rm-torrents').checked;
-  const triggerCleanuparr = $('rm-cleanuparr').checked;
+  const choices = checkedRemovalChoices();
+  const removeRadarr = choices.removeRadarr;
+  const deleteRadarrFiles = choices.deleteRadarrFiles;
+  const deletePlex = choices.deletePlex;
+  const removeDownloads = choices.removeDownloads;
+  const deleteTorrentMatches = choices.deleteTorrentMatches;
+  const triggerCleanuparr = choices.triggerCleanuparr;
   if (!removeRadarr && !deleteRadarrFiles && !deletePlex && !removeDownloads && !deleteTorrentMatches) {
     toast('Select at least one removal action');
     return;
   }
-  const chosen = [
-    deleteRadarrFiles ? 'remove the movie from Radarr and delete Radarr-managed movie files' : (removeRadarr ? 'remove the movie from Radarr' : ''),
-    deletePlex ? 'permanently delete the Plex media file' : '',
-    removeDownloads ? 'remove the active download from the download client' : '',
-    deleteTorrentMatches ? 'delete matched torrent-client entries with data' : '',
-    triggerCleanuparr ? 'trigger Cleanuparr Download Cleaner' : '',
-  ].filter(Boolean);
+  const chosen = removalChoiceLabels(choices);
   if (!window.confirm(`Confirm that you want to ${chosen.join(', ')}?`)) return;
 
   const btn = $('removeConfirmBtn');
@@ -1927,12 +1976,170 @@ function toggleAllVisible(checked) {
   render();
 }
 
-function handleBatchRemove() {
+async function handleBatchRemove() {
   const titles = allTitles.filter(t => selectedTitles.has(t.id));
   if (!titles.length) return;
-  toast(`Queued ${titles.length} title${titles.length === 1 ? '' : 's'} for removal (stub)`);
-  selectedTitles.clear();
-  render();
+  const movies = titles.filter(t => t.type === 'movie');
+  const unsupported = titles.filter(t => t.type !== 'movie');
+  if (!movies.length) {
+    toast('Sonarr removal is not wired yet');
+    return;
+  }
+
+  $('modal').innerHTML = `
+    <button class="modal-close" onclick="closeModal()"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M2 2l10 10M12 2L2 12"/></svg></button>
+    <div class="remove-confirm">
+      <div class="modal-title">Preparing batch removal</div>
+      <div class="remove-status">Checking ${movies.length} selected movie${movies.length === 1 ? '' : 's'}...</div>
+    </div>`;
+  $('modalBg').classList.add('on');
+
+  const previews = await Promise.all(movies.map(async title => {
+    try {
+      const r = await fetch(`/api/remove/${title.id}/preview`);
+      const d = await r.json();
+      if (!r.ok) return { title, error: d.error || 'Could not prepare removal' };
+      return { title, preview: d };
+    } catch (err) {
+      return { title, error: err.message || 'Could not prepare removal' };
+    }
+  }));
+  batchRemovalItems = previews.filter(item => item.preview);
+  renderBatchRemovalConfirmation(previews, unsupported);
+}
+
+function renderBatchRemovalConfirmation(items, unsupported) {
+  const readyItems = items.filter(item => item.preview);
+  const blockedItems = items.filter(item => item.error);
+  batchInitialSkipped = blockedItems.length + unsupported.length;
+  const caps = readyItems.map(removalCapabilities);
+  const radarrCount = caps.filter(c => c.radarrReady).length;
+  const plexCount = caps.filter(c => c.plexReady).length;
+  const downloadsCount = caps.reduce((sum, c) => sum + c.downloadCount, 0);
+  const torrentsCount = caps.reduce((sum, c) => sum + c.torrentCount, 0);
+  const cleanuparrCount = caps.filter(c => c.cleanuparrReady).length;
+  const readyNames = readyItems.slice(0, 5).map(item => item.title.title);
+  const status = [
+    readyItems.length ? `${readyItems.length} movie${readyItems.length === 1 ? '' : 's'} ready: ${readyNames.map(esc).join(', ')}${readyItems.length > readyNames.length ? ', ...' : ''}` : '',
+    unsupported.length ? `${unsupported.length} selected show${unsupported.length === 1 ? '' : 's'} skipped because Sonarr removal is not wired yet.` : '',
+    blockedItems.length ? `${blockedItems.length} movie${blockedItems.length === 1 ? '' : 's'} could not be prepared and will be skipped.` : '',
+  ].filter(Boolean).join('<br>');
+  $('modal').innerHTML = `
+    <button class="modal-close" onclick="closeModal()"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M2 2l10 10M12 2L2 12"/></svg></button>
+    <div class="remove-confirm">
+      <div class="modal-title">Remove ${readyItems.length} selected movie${readyItems.length === 1 ? '' : 's'}?</div>
+      <div class="remove-warning">These actions will be applied where available per movie. Each movie is rechecked by the server before anything is deleted.</div>
+      ${status ? `<div class="remove-status">${status}</div>` : ''}
+      <div class="remove-presets">
+        <button class="remove-preset" type="button" data-remove-preset="delete" onclick="applyRemovalPreset('delete')">
+          <div class="remove-preset-title">Delete everything now</div>
+          <div class="remove-preset-sub">Remove Radarr tracking, delete files where available, delete Plex where available, and clear matched torrent-client data.</div>
+        </button>
+        <button class="remove-preset" type="button" data-remove-preset="uncouple" onclick="applyRemovalPreset('uncouple')" ${cleanuparrCount && radarrCount ? '' : 'disabled'}>
+          <div class="remove-preset-title">Uncouple, keep seeding</div>
+          <div class="remove-preset-sub">Remove from Radarr where matched but leave torrent-client entries alone for seeding/Cleanuparr cleanup.</div>
+        </button>
+      </div>
+      <div class="modal-section-label">Advanced Switches</div>
+      <div class="remove-options">
+        <label class="remove-option">
+          <input id="rm-radarr" type="checkbox" ${radarrCount ? '' : 'disabled'} onchange="syncRemovalDependencies()">
+          <span>
+            <div class="remove-option-title">Remove from Radarr</div>
+            <div class="remove-option-sub">Available for ${radarrCount} selected movie${radarrCount === 1 ? '' : 's'}.</div>
+          </span>
+        </label>
+        <label class="remove-option">
+          <input id="rm-radarr-files" type="checkbox" ${radarrCount ? '' : 'disabled'} onchange="syncRemovalDependencies()">
+          <span>
+            <div class="remove-option-title">Delete Radarr media files</div>
+            <div class="remove-option-sub">Passes <code>deleteFiles=true</code> for the ${radarrCount} Radarr-matched movie${radarrCount === 1 ? '' : 's'}.</div>
+          </span>
+        </label>
+        <label class="remove-option">
+          <input id="rm-plex" type="checkbox" ${plexCount ? '' : 'disabled'}>
+          <span>
+            <div class="remove-option-title">Delete from Plex and disk</div>
+            <div class="remove-option-sub">Available for ${plexCount} selected movie${plexCount === 1 ? '' : 's'} with Plex deletion support.</div>
+          </span>
+        </label>
+        <label class="remove-option">
+          <input id="rm-downloads" type="checkbox" ${downloadsCount ? '' : 'disabled'}>
+          <span>
+            <div class="remove-option-title">Remove active download via Radarr</div>
+            <div class="remove-option-sub">Deletes ${downloadsCount} matching active download${downloadsCount === 1 ? '' : 's'} from the configured download client.</div>
+          </span>
+        </label>
+        <label class="remove-option">
+          <input id="rm-torrents" type="checkbox" ${torrentsCount ? '' : 'disabled'}>
+          <span>
+            <div class="remove-option-title">Delete matched torrent-client entries with data</div>
+            <div class="remove-option-sub">Deletes ${torrentsCount} matched torrent-client entr${torrentsCount === 1 ? 'y' : 'ies'} with data across the selected movies.</div>
+          </span>
+        </label>
+        <label class="remove-option">
+          <input id="rm-cleanuparr" type="checkbox" ${cleanuparrCount ? '' : 'disabled'}>
+          <span>
+            <div class="remove-option-title">Trigger Cleanuparr Download Cleaner</div>
+            <div class="remove-option-sub">Available for ${cleanuparrCount} selected movie${cleanuparrCount === 1 ? '' : 's'} after a removal action.</div>
+          </span>
+        </label>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="modal-btn ghost" onclick="closeModal()">Cancel</button>
+      <button class="modal-btn danger" id="removeConfirmBtn" onclick="confirmBatchRemoval()">Confirm batch deletion</button>
+    </div>`;
+  if (readyItems.length) applyRemovalPreset('delete');
+}
+
+async function confirmBatchRemoval() {
+  const choices = checkedRemovalChoices();
+  const work = batchRemovalItems
+    .map(item => ({ item, payload: batchPayloadForItem(item, choices) }))
+    .filter(entry => entry.payload);
+  if (!work.length) {
+    toast('Select at least one removal action available for the selected movies');
+    return;
+  }
+  const chosen = removalChoiceLabels(choices);
+  if (!window.confirm(`Confirm batch deletion for ${work.length} movie${work.length === 1 ? '' : 's'}: ${chosen.join(', ')}?`)) return;
+
+  const btn = $('removeConfirmBtn');
+  btn.disabled = true;
+  const status = document.querySelector('.remove-status');
+  let success = 0;
+  const failed = [];
+  const succeededIds = new Set();
+  for (let i = 0; i < work.length; i++) {
+    const { item, payload } = work[i];
+    btn.textContent = `Removing ${i + 1}/${work.length}...`;
+    if (status) status.innerHTML = `Removing ${esc(item.title.title)} (${i + 1}/${work.length})...`;
+    try {
+      const r = await fetch(`/api/remove/${item.title.id}`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'Removal failed');
+      success++;
+      succeededIds.add(item.title.id);
+    } catch (err) {
+      failed.push(`${item.title.title}: ${err.message || 'Removal failed'}`);
+    }
+  }
+  selectedTitles = new Set([...selectedTitles].filter(id => !succeededIds.has(id)));
+  closeModal();
+  await Promise.allSettled([loadTitles(), loadCounts()]);
+  const skipped = batchInitialSkipped + (batchRemovalItems.length - work.length);
+  const pieces = [
+    success ? `Removed ${success}` : '',
+    failed.length ? `${failed.length} failed` : '',
+    skipped ? `${skipped} skipped` : '',
+  ].filter(Boolean);
+  toast(pieces.join(' · ') || 'No removals completed');
+  if (failed.length) console.warn('Batch removal failures:', failed);
 }
 
 // ════ TOAST ════
