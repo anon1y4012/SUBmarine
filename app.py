@@ -832,29 +832,43 @@ def api_titles():
 @app.route('/api/service_counts')
 def api_service_counts():
     """Return how many titles overlap with each service, plus overlap stats."""
+    media_type = request.args.get('type', 'all')
+    where_clause = ''
+    params = []
+    if media_type in ('movie', 'tv'):
+        where_clause = 'WHERE t.media_type = ?'
+        params.append(media_type)
+
     db = get_db()
-    rows = db.execute('''
-        SELECT provider_name, COUNT(DISTINCT title_id) as cnt
+    rows = db.execute(f'''
+        SELECT scoped.provider_name, COUNT(DISTINCT scoped.title_id) as cnt
         FROM (
             SELECT title_id, provider_name FROM provider_links
             UNION
             SELECT title_id, provider_name FROM partial_provider_links
-        )
-        GROUP BY provider_name
-    ''').fetchall()
+        ) scoped
+        JOIN titles t ON t.id = scoped.title_id
+        {where_clause}
+        GROUP BY scoped.provider_name
+    ''', params).fetchall()
     counts = {r['provider_name']: r['cnt'] for r in rows}
 
     # Titles available on at least one service
-    overlap = db.execute('''
+    overlap = db.execute(f'''
         SELECT COUNT(DISTINCT title_id) as c
         FROM (
             SELECT title_id FROM provider_links
             UNION
             SELECT title_id FROM partial_provider_links
-        )
-    ''').fetchone()['c']
+        ) scoped
+        JOIN titles t ON t.id = scoped.title_id
+        {where_clause}
+    ''', params).fetchone()['c']
 
-    total = db.execute('SELECT COUNT(*) as c FROM titles').fetchone()['c']
+    total_query = 'SELECT COUNT(*) as c FROM titles'
+    if where_clause:
+        total_query += ' WHERE media_type = ?'
+    total = db.execute(total_query, params).fetchone()['c']
     db.close()
     return jsonify({
         'service_counts': counts,

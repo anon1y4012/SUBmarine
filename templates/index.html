@@ -174,6 +174,31 @@
   }
   .sync-btn:disabled { opacity: 0.5; cursor: not-allowed; }
   .sync-btn svg { flex-shrink: 0; }
+  .sync-btn.syncing svg { animation: sweep-rotate 1.1s linear infinite; }
+  .rail-sync {
+    display: none; margin-top: 10px; padding: 10px 11px;
+    border: 1px solid var(--line); border-radius: 9px;
+    background: rgba(13,31,24,0.36);
+  }
+  .rail-sync.on { display: block; animation: fade-in 0.2s ease; }
+  .rail-sync-text {
+    font-family: var(--mono); font-size: 10px; line-height: 1.35;
+    color: var(--phosphor); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .rail-sync-sub {
+    font-family: var(--mono); font-size: 9px; color: var(--ink-faint);
+    margin-top: 3px; letter-spacing: 0.04em; text-transform: uppercase;
+  }
+  .rail-sync-track {
+    height: 3px; margin-top: 8px; border-radius: 2px;
+    background: var(--abyss-700); overflow: hidden;
+  }
+  .rail-sync-fill {
+    height: 100%; width: 0%; border-radius: 2px;
+    background: linear-gradient(90deg, var(--phosphor-dim), var(--phosphor));
+    box-shadow: 0 0 10px var(--phosphor-glow);
+    transition: width 0.5s ease;
+  }
 
   /* ════ MAIN ════ */
   .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
@@ -224,6 +249,10 @@
   }
   .status-chip.syncing { color: var(--phosphor); border-color: var(--phosphor-dim); }
   .status-chip.syncing .dot { animation: pulse-dot 1s ease-in-out infinite; }
+  .status-chip.stale { color: var(--amber); border-color: rgba(241,196,15,0.35); }
+  .status-chip.stale .dot { background: var(--amber); box-shadow: 0 0 6px rgba(241,196,15,0.55); }
+  .status-chip.synced { color: var(--cyan); border-color: rgba(77,213,255,0.3); }
+  .status-chip.synced .dot { background: var(--cyan); box-shadow: 0 0 6px rgba(77,213,255,0.55); }
   @keyframes pulse-dot { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
 
   /* View toggle */
@@ -283,12 +312,38 @@
   .metric.accent::before { opacity: 1; }
 
   /* Mini sparkbar inside metric */
-  .sparkbar { display: flex; align-items: flex-end; gap: 3px; height: 30px; margin-top: 12px; }
+  .sparkbar { display: flex; align-items: flex-end; gap: 4px; height: 30px; margin-top: 12px; }
   .sparkbar span {
     flex: 1; background: var(--abyss-600); border-radius: 2px 2px 0 0;
-    min-height: 3px; transition: height 0.6s cubic-bezier(0.4,0,0.2,1);
+    min-height: 3px; transition: height 0.6s cubic-bezier(0.4,0,0.2,1), transform 0.16s ease, filter 0.16s ease, box-shadow 0.16s ease;
+    position: relative; transform-origin: bottom center;
   }
-  .sparkbar span.lit { background: linear-gradient(180deg, var(--phosphor), var(--phosphor-dim)); }
+  .sparkbar span.lit {
+    background: var(--bar-color, var(--phosphor));
+    background: linear-gradient(180deg, var(--bar-color, var(--phosphor)), color-mix(in srgb, var(--bar-color, var(--phosphor)) 50%, var(--abyss-850)));
+    box-shadow: 0 0 10px color-mix(in srgb, var(--bar-color, var(--phosphor)) 35%, transparent);
+  }
+  .sparkbar span.lit:hover {
+    transform: translateY(-3px) scaleX(1.16) scaleY(1.08);
+    filter: brightness(1.16) saturate(1.12);
+    box-shadow: 0 0 18px color-mix(in srgb, var(--bar-color, var(--phosphor)) 55%, transparent);
+    z-index: 5;
+  }
+  .sparkbar span.lit::after {
+    content: attr(data-label);
+    position: absolute; left: 50%; bottom: calc(100% + 7px);
+    transform: translateX(-50%) translateY(4px);
+    opacity: 0; pointer-events: none; white-space: nowrap;
+    padding: 4px 7px; border-radius: 6px;
+    background: rgba(4, 8, 14, 0.94); border: 1px solid var(--line);
+    color: var(--ink); font-family: var(--mono); font-size: 9.5px;
+    box-shadow: 0 8px 18px rgba(0,0,0,0.35);
+    transition: opacity 0.14s ease, transform 0.14s ease;
+  }
+  .sparkbar span.lit:hover::after {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
 
   /* ════ FILTER DECK ════ */
   .deck {
@@ -299,6 +354,18 @@
     font-family: var(--mono); font-size: 9.5px; font-weight: 600;
     letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-faint);
   }
+  .svc-tools {
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  }
+  .svc-tool {
+    height: 30px; padding: 0 10px; border-radius: 8px;
+    background: var(--abyss-800); border: 1px solid var(--line);
+    color: var(--ink-dim); font-family: var(--mono); font-size: 10px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.06em; cursor: pointer;
+  }
+  select.svc-tool { cursor: pointer; outline: none; }
+  button.svc-tool:hover, select.svc-tool:hover { border-color: var(--phosphor-dim); color: var(--phosphor); }
+  .svc-tool:disabled { opacity: 0.45; cursor: not-allowed; }
   .svc-chips { display: flex; gap: 6px; flex-wrap: wrap; flex: 1; }
   .chip {
     font-family: var(--sans); font-size: 12px; font-weight: 500;
@@ -307,6 +374,8 @@
     color: var(--ink-soft); white-space: nowrap;
     transition: all 0.15s; display: flex; align-items: center; gap: 6px;
   }
+  .chip[draggable="true"] { cursor: grab; }
+  .chip.dragging { opacity: 0.45; transform: scale(0.98); }
   .chip:hover { border-color: var(--abyss-500); color: var(--ink); transform: translateY(-1px); }
   .chip.on {
     background: var(--phosphor-glow); border-color: var(--phosphor-dim);
@@ -490,70 +559,9 @@
   .empty-h { font-size: 18px; font-weight: 700; color: var(--ink-soft); margin-bottom: 8px; letter-spacing: -0.01em; }
   .empty-p { font-size: 13.5px; color: var(--ink-dim); }
 
-  /* ════ SYNC OVERLAY (sonar console) ════ */
-  .console {
-    display: none;
-    position: fixed; inset: 0; z-index: 100;
-    background: radial-gradient(ellipse at center, var(--abyss-850), var(--abyss-900) 80%);
-    backdrop-filter: blur(4px);
-    flex-direction: column; align-items: center; justify-content: center;
-    gap: 36px;
-  }
-  .console.on { display: flex; animation: fade-in 0.3s ease; }
+  /* Shared animation helpers */
   @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
-
-  .scope { position: relative; width: 280px; height: 280px; }
-  .scope-ring {
-    position: absolute; border-radius: 50%; border: 1px solid var(--phosphor-dim);
-    opacity: 0.25; inset: 0;
-  }
-  .scope-ring.r2 { inset: 38px; opacity: 0.3; }
-  .scope-ring.r3 { inset: 76px; opacity: 0.35; }
-  .scope-ring.r4 { inset: 114px; opacity: 0.4; }
-  .scope-cross {
-    position: absolute; background: var(--phosphor-dim); opacity: 0.2;
-  }
-  .scope-cross.h { left: 0; right: 0; top: 50%; height: 1px; }
-  .scope-cross.v { top: 0; bottom: 0; left: 50%; width: 1px; }
-  .scope-sweep {
-    position: absolute; inset: 0; border-radius: 50%;
-    background: conic-gradient(from 0deg, transparent 0deg, transparent 300deg, var(--phosphor-glow) 350deg, rgba(52,229,163,0.5) 360deg);
-    animation: sweep-rotate 2.4s linear infinite;
-  }
   @keyframes sweep-rotate { to { transform: rotate(360deg); } }
-  .scope-blip {
-    position: absolute; width: 8px; height: 8px; border-radius: 50%;
-    background: var(--phosphor); box-shadow: 0 0 12px var(--phosphor);
-  }
-  .scope-blip.b1 { top: 32%; left: 64%; animation: blip-fade 2.4s ease-in-out infinite; }
-  .scope-blip.b2 { top: 60%; left: 40%; animation: blip-fade 2.4s ease-in-out 0.6s infinite; }
-  .scope-blip.b3 { top: 72%; left: 58%; animation: blip-fade 2.4s ease-in-out 1.2s infinite; }
-  @keyframes blip-fade { 0%,100% { opacity: 0.25; } 40% { opacity: 1; } }
-  .scope-core {
-    position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
-    width: 14px; height: 14px; border-radius: 50%;
-    background: var(--phosphor); box-shadow: 0 0 20px var(--phosphor);
-  }
-
-  .console-text { text-align: center; }
-  .console-title {
-    font-size: 19px; font-weight: 700; color: var(--ink); margin-bottom: 8px;
-    letter-spacing: -0.01em;
-  }
-  .console-sub {
-    font-family: var(--mono); font-size: 12px; color: var(--phosphor);
-    letter-spacing: 0.04em;
-  }
-  .console-track {
-    width: 320px; height: 3px; border-radius: 2px;
-    background: var(--abyss-700); overflow: hidden; margin-top: 4px;
-  }
-  .console-fill {
-    height: 100%; width: 0%; border-radius: 2px;
-    background: linear-gradient(90deg, var(--phosphor-dim), var(--phosphor));
-    box-shadow: 0 0 10px var(--phosphor-glow);
-    transition: width 0.5s ease;
-  }
 
   /* ════ MODAL (detail) ════ */
   .modal-bg {
@@ -988,6 +996,11 @@
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 4.5A5.75 5.75 0 1 0 13.75 9"/><path d="M13.5 4.5V2M13.5 4.5H11"/></svg>
         <span>Ping the Fleet</span>
       </button>
+      <div class="rail-sync" id="railSync">
+        <div class="rail-sync-text" id="railSyncText">Awaiting response from Plex</div>
+        <div class="rail-sync-sub" id="railSyncSub">0% complete</div>
+        <div class="rail-sync-track"><div class="rail-sync-fill" id="railSyncFill"></div></div>
+      </div>
     </div>
   </aside>
 
@@ -1029,7 +1042,7 @@
           <div class="metric">
             <div class="metric-k"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="6" cy="6" r="5"/><path d="M4 4l4 4M8 4l-4 4"/></svg> Plex Exclusive</div>
             <div class="metric-v" id="m-orphan">—</div>
-            <div class="metric-sub">not on any service</div>
+            <div class="metric-sub" id="m-orphan-sub">not on any service</div>
           </div>
           <div class="metric">
             <div class="metric-k"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1 9l3-3 2 2 5-5M11 4V1H8" stroke-linecap="round" stroke-linejoin="round"/></svg> Top Service</div>
@@ -1041,12 +1054,19 @@
         <!-- Filter deck -->
         <div class="deck">
           <span class="deck-label">Services</span>
-          <div class="svc-chips" id="svcChips">
-            <button class="chip chip-all on" id="chipAll" onclick="clearSvc(this)">All Services</button>
-            {% for svc in services %}
-            <button class="chip" data-svc="{{ svc }}" onclick="toggleSvc('{{ svc }}', this)">{{ svc }} <span class="cnt" data-cnt="{{ svc }}"></span></button>
-            {% endfor %}
+          <div class="svc-tools">
+            <select class="svc-tool" id="svcSort" onchange="setServiceSort(this.value)" title="Sort services">
+              <option value="manual">Manual</option>
+              <option value="name">Name</option>
+              <option value="overlap">Overlap Count</option>
+            </select>
+            <select class="svc-tool" id="svcListSelect" onchange="applyServiceList(this.value)" title="Apply saved service list">
+              <option value="">Saved Lists</option>
+            </select>
+            <button class="svc-tool" type="button" onclick="saveServiceList()">Save List</button>
+            <button class="svc-tool" type="button" id="svcDeleteList" onclick="deleteServiceList()" disabled>Delete List</button>
           </div>
+          <div class="svc-chips" id="svcChips"></div>
         </div>
 
         <!-- Poster grid -->
@@ -1484,11 +1504,96 @@ let selectedSvcs = new Set(), searchQ = '', view = 'grid';
 let selectedTitles = new Set();
 let batchRemovalItems = [];
 let batchInitialSkipped = 0;
+let serviceCounts = {};
+let draggedService = null;
+let activeServiceList = '';
+let lastLiveRefresh = 0;
+let lastSyncedCount = -1;
+const STORAGE_KEYS = {
+  serviceOrder: 'submarine.serviceOrder',
+  serviceSort: 'submarine.serviceSort',
+  serviceLists: 'submarine.serviceLists',
+};
+const SERVICE_COLORS = {
+  'Netflix': '#E50914',
+  'Hulu': '#1CE783',
+  'Disney Plus': '#113CCF',
+  'Max': '#F5F5F5',
+  'Amazon Prime Video': '#00A8E1',
+  'Apple TV': '#F5F5F7',
+  'Peacock Premium': '#7E00FF',
+  'Paramount Plus': '#0064FF',
+  'Starz': '#F5F7FA',
+  'MGM Plus': '#D4AF37',
+  'AMC+': '#F6C343',
+  'Shudder': '#C2002F',
+  'BritBox': '#00AEEF',
+  'Acorn TV': '#D71920',
+  'Criterion Channel': '#E30613',
+  'MUBI': '#FFCC00',
+  'Crunchyroll': '#FF5E00',
+  'fuboTV': '#C83D1E',
+  'Discovery+': '#00AEEF',
+  'Tubi TV': '#7408FF',
+  'The Roku Channel': '#662D91',
+  'Pluto TV': '#FFD200',
+  'Curiosity Stream': '#00B4E5',
+  'Sundance Now': '#FF671F',
+  'HiDive': '#00A9E0',
+  'Fandor': '#FF4E00',
+  'Pure Flix': '#00A3E0',
+  'ALLBLK': '#F7F7F7',
+  'History Vault': '#C9A24D',
+  'Hallmark+': '#5D2E8C',
+  'PBS': '#2638C4',
+};
 
 const $ = id => document.getElementById(id);
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function loadJSON(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+function saveJSON(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {}
+}
+function loadStorage(key, fallback) {
+  try {
+    return localStorage.getItem(key) || fallback;
+  } catch {
+    return fallback;
+  }
+}
+function saveStorage(key, value) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {}
+}
+let serviceOrder = loadJSON(STORAGE_KEYS.serviceOrder, SERVICES);
+let serviceSort = loadStorage(STORAGE_KEYS.serviceSort, 'manual');
+let serviceLists = loadJSON(STORAGE_KEYS.serviceLists, {});
+if (!['manual', 'name', 'overlap'].includes(serviceSort)) serviceSort = 'manual';
+if (!serviceLists || typeof serviceLists !== 'object' || Array.isArray(serviceLists)) serviceLists = {};
 const partialProviders = t => t.partial_providers || [];
 const hasOverlap = t => t.providers.length > 0 || partialProviders(t).length > 0;
+function titleServiceNames(t) {
+  const names = new Set(t.providers || []);
+  partialProviders(t).forEach(p => names.add(p.name));
+  return names;
+}
+function serviceColor(name) {
+  if (SERVICE_COLORS[name]) return SERVICE_COLORS[name];
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = ((hash << 5) - hash + name.charCodeAt(i)) | 0;
+  const hue = Math.abs(hash) % 360;
+  return `hsl(${hue} 76% 58%)`;
+}
 function seasonRanges(seasons) {
   const sorted = [...new Set(seasons)].sort((a,b)=>a-b);
   const ranges = [];
@@ -1510,46 +1615,139 @@ function compactSeasons(seasons) {
 function partialAvailability(provider) {
   return `${formatSeasons(provider.seasons)} ${provider.seasons.length === 1 ? 'is' : 'are'} on ${provider.name}`;
 }
+function normalizeServiceOrder() {
+  const valid = new Set(SERVICES);
+  if (!Array.isArray(serviceOrder)) serviceOrder = SERVICES;
+  serviceOrder = [
+    ...serviceOrder.filter(s => valid.has(s)),
+    ...SERVICES.filter(s => !serviceOrder.includes(s)),
+  ];
+  saveJSON(STORAGE_KEYS.serviceOrder, serviceOrder);
+}
+function orderedServices() {
+  normalizeServiceOrder();
+  if (serviceSort === 'name') return [...SERVICES].sort((a,b)=>a.localeCompare(b));
+  if (serviceSort === 'overlap') {
+    return [...SERVICES].sort((a,b) => {
+      const delta = (serviceCounts[b] || 0) - (serviceCounts[a] || 0);
+      return delta || a.localeCompare(b);
+    });
+  }
+  return [...serviceOrder];
+}
+function countLocalStats(rows) {
+  const counts = {};
+  let overlap = 0;
+  rows.forEach(t => {
+    const names = titleServiceNames(t);
+    if (names.size) overlap++;
+    names.forEach(name => counts[name] = (counts[name] || 0) + 1);
+  });
+  return {
+    service_counts: counts,
+    overlap,
+    total: rows.length,
+    unavailable: rows.length - overlap,
+  };
+}
+function metricScopeLabel() {
+  if (filterType === 'movie') return 'movies';
+  if (filterType === 'tv') return 'TV shows';
+  return 'library';
+}
+function renderServiceListSelect() {
+  const select = $('svcListSelect');
+  if (!select) return;
+  const names = Object.keys(serviceLists).sort((a,b)=>a.localeCompare(b));
+  select.innerHTML = '<option value="">Saved Lists</option>' + names.map(name =>
+    `<option value="${esc(name)}" ${name === activeServiceList ? 'selected' : ''}>${esc(name)}</option>`
+  ).join('');
+  const deleteBtn = $('svcDeleteList');
+  if (deleteBtn) deleteBtn.disabled = !activeServiceList || !serviceLists[activeServiceList];
+}
+function renderServiceChips() {
+  const deck = $('svcChips');
+  if (!deck) return;
+  const isManual = serviceSort === 'manual';
+  const chips = orderedServices().map(s => {
+    const count = serviceCounts[s] || '';
+    const active = selectedSvcs.has(s);
+    return `<button class="chip ${active ? 'on' : ''}" type="button" data-svc="${esc(s)}" ${isManual ? 'draggable="true"' : ''} title="${esc(s)}">
+      ${esc(s)} <span class="cnt">${count}</span>
+    </button>`;
+  }).join('');
+  deck.innerHTML = `<button class="chip chip-all ${selectedSvcs.size === 0 ? 'on' : ''}" type="button" id="chipAll">All Services</button>${chips}`;
+  const allBtn = $('chipAll');
+  if (allBtn) allBtn.addEventListener('click', clearSvc);
+  deck.querySelectorAll('[data-svc]').forEach(btn => {
+    btn.addEventListener('click', () => toggleSvc(btn.dataset.svc));
+    if (!isManual) return;
+    btn.addEventListener('dragstart', onServiceDragStart);
+    btn.addEventListener('dragover', e => e.preventDefault());
+    btn.addEventListener('drop', onServiceDrop);
+    btn.addEventListener('dragend', onServiceDragEnd);
+  });
+  const sort = $('svcSort');
+  if (sort) sort.value = serviceSort;
+  renderServiceListSelect();
+}
+function updateDashboardMetrics(stats) {
+  if (!stats) stats = countLocalStats(allTitles);
+  serviceCounts = stats.service_counts;
+  $('m-overlap').textContent = stats.overlap ?? '—';
+  $('m-orphan').textContent  = stats.unavailable ?? '—';
+  $('t-covered').textContent = stats.overlap ?? '—';
+  $('t-orphan').textContent  = stats.unavailable ?? '—';
+  $('m-overlap-sub').textContent = stats.total ? `${Math.round(stats.overlap / stats.total * 100)}% of ${metricScopeLabel()}` : 'available elsewhere';
+  $('m-orphan-sub').textContent = `not on any service in ${metricScopeLabel()}`;
+
+  const entries = Object.entries(stats.service_counts).filter(([,c]) => c > 0).sort((a,b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  if (!entries.length) {
+    $('m-top').textContent = '—';
+    $('sparkbar').innerHTML = Array(8).fill('<span></span>').join('');
+  } else {
+    $('m-top').textContent = entries[0][0];
+    const max = entries[0][1] || 1;
+    const top8 = entries.slice(0, 8);
+    $('sparkbar').innerHTML = top8.map(([s,c]) => {
+      const pct = Math.max(8, Math.round(c / max * 100));
+      const label = `${s}: ${c} overlapping title${c === 1 ? '' : 's'}`;
+      return `<span class="lit" style="height:${pct}%;--bar-color:${serviceColor(s)}" title="${esc(label)}" data-label="${esc(label)}" aria-label="${esc(label)}"></span>`;
+    }).join('') + Array(Math.max(0, 8 - top8.length)).fill('<span></span>').join('');
+  }
+  renderServiceChips();
+}
 
 // ════ DATA ════
-async function loadTitles() {
+function typeParam() {
   const p = new URLSearchParams();
   if (filterType !== 'all') p.set('type', filterType);
-  if (selectedSvcs.size) p.set('services', [...selectedSvcs].join(','));
-  const r = await fetch('/api/titles?' + p);
+  return p;
+}
+function titleUrl({includeServices=false} = {}) {
+  const p = typeParam();
+  if (includeServices && selectedSvcs.size) p.set('services', [...selectedSvcs].join(','));
+  return '/api/titles?' + p;
+}
+async function loadTitles(opts = {}) {
+  const scrollHost = document.querySelector('.scroll');
+  const scrollTop = opts.preserveScroll && scrollHost ? scrollHost.scrollTop : null;
+  const r = await fetch(titleUrl({includeServices: true}));
   allTitles = await r.json();
   const loadedIds = new Set(allTitles.map(t => t.id));
   selectedTitles = new Set([...selectedTitles].filter(id => loadedIds.has(id)));
   render();
+  if (scrollTop !== null && scrollHost) requestAnimationFrame(() => { scrollHost.scrollTop = scrollTop; });
 }
 
 async function loadCounts() {
   try {
-    const r = await fetch('/api/service_counts');
+    const r = await fetch('/api/service_counts?' + typeParam());
     const d = await r.json();
-    // service chip counts
-    SERVICES.forEach(s => {
-      const el = document.querySelector(`[data-cnt="${CSS.escape(s)}"]`);
-      if (el) el.textContent = d.service_counts[s] ? d.service_counts[s] : '';
-    });
-    // metrics
-    $('m-overlap').textContent = d.overlap ?? '—';
-    $('m-orphan').textContent  = d.unavailable ?? '—';
-    $('t-covered').textContent = d.overlap ?? '—';
-    $('t-orphan').textContent  = d.unavailable ?? '—';
-    $('m-overlap-sub').textContent = d.total ? `${Math.round(d.overlap/d.total*100)}% of library` : 'available elsewhere';
-
-    // top service + sparkbar
-    const entries = Object.entries(d.service_counts).sort((a,b)=>b[1]-a[1]);
-    if (entries.length) {
-      $('m-top').textContent = entries[0][0];
-      const max = entries[0][1];
-      const top8 = entries.slice(0,8);
-      $('sparkbar').innerHTML = top8.map(([s,c]) =>
-        `<span class="lit" style="height:${Math.max(8,Math.round(c/max*100))}%" title="${esc(s)}: ${c}"></span>`
-      ).join('') + Array(Math.max(0,8-top8.length)).fill('<span></span>').join('');
-    }
-  } catch(e) { console.warn('counts failed', e); }
+    updateDashboardMetrics(d);
+  } catch(e) {
+    console.warn('counts failed', e);
+  }
 }
 
 // ════ RENDER ════
@@ -2159,24 +2357,84 @@ function setType(t, el) {
   document.querySelectorAll('[data-cov]').forEach(b=>b.classList.remove('on'));
   el.classList.add('on');
   loadTitles();
+  loadCounts();
 }
 function setCoverage(c, el) {
-  filterCov = c;
+  filterCov = filterCov === c ? null : c;
   document.querySelectorAll('[data-cov]').forEach(b=>b.classList.remove('on'));
-  el.classList.add('on');
+  if (filterCov === c) el.classList.add('on');
   render();
 }
-function toggleSvc(s, el) {
+function toggleSvc(s) {
   selectedSvcs.has(s) ? selectedSvcs.delete(s) : selectedSvcs.add(s);
-  el.classList.toggle('on', selectedSvcs.has(s));
-  $('chipAll').classList.toggle('on', selectedSvcs.size===0);
+  activeServiceList = '';
+  renderServiceChips();
   loadTitles();
 }
-function clearSvc(el) {
+function clearSvc() {
   selectedSvcs.clear();
-  document.querySelectorAll('[data-svc]').forEach(b=>b.classList.remove('on'));
-  el.classList.add('on');
+  activeServiceList = '';
+  renderServiceChips();
   loadTitles();
+}
+function setServiceSort(value) {
+  serviceSort = value;
+  saveStorage(STORAGE_KEYS.serviceSort, serviceSort);
+  renderServiceChips();
+}
+function onServiceDragStart(e) {
+  draggedService = e.currentTarget.dataset.svc;
+  e.currentTarget.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+}
+function onServiceDrop(e) {
+  e.preventDefault();
+  const target = e.currentTarget.dataset.svc;
+  if (!draggedService || !target || draggedService === target) return;
+  normalizeServiceOrder();
+  const nextOrder = serviceOrder.filter(s => s !== draggedService);
+  const rect = e.currentTarget.getBoundingClientRect();
+  const dropAfter = e.clientX > rect.left + rect.width / 2;
+  const targetIndex = nextOrder.indexOf(target) + (dropAfter ? 1 : 0);
+  nextOrder.splice(targetIndex, 0, draggedService);
+  serviceOrder = nextOrder;
+  saveJSON(STORAGE_KEYS.serviceOrder, serviceOrder);
+  renderServiceChips();
+}
+function onServiceDragEnd(e) {
+  e.currentTarget.classList.remove('dragging');
+  draggedService = null;
+}
+function saveServiceList() {
+  if (!selectedSvcs.size) {
+    toast('Select at least one service first');
+    return;
+  }
+  const name = (prompt('Name this service list') || '').trim();
+  if (!name) return;
+  serviceLists[name] = [...selectedSvcs];
+  activeServiceList = name;
+  saveJSON(STORAGE_KEYS.serviceLists, serviceLists);
+  renderServiceListSelect();
+  toast('Service list saved');
+}
+function applyServiceList(name) {
+  activeServiceList = name;
+  if (!name || !serviceLists[name]) {
+    renderServiceListSelect();
+    return;
+  }
+  selectedSvcs = new Set(serviceLists[name].filter(s => SERVICES.includes(s)));
+  renderServiceChips();
+  loadTitles();
+}
+function deleteServiceList() {
+  if (!activeServiceList || !serviceLists[activeServiceList]) return;
+  delete serviceLists[activeServiceList];
+  activeServiceList = '';
+  saveJSON(STORAGE_KEYS.serviceLists, serviceLists);
+  renderServiceListSelect();
+  toast('Service list deleted');
 }
 function onSearch() { searchQ = $('search').value.toLowerCase(); render(); }
 function setView(v) {
@@ -2187,44 +2445,94 @@ function setView(v) {
 }
 
 // ════ SYNC ════
-async function triggerSync() { await fetch('/api/sync', {method:'POST'}); poll(); }
+async function triggerSync() {
+  $('syncBtn').disabled = true;
+  $('syncBtn').classList.add('syncing');
+  $('railSync').classList.add('on');
+  $('railSyncText').textContent = 'Starting sync...';
+  $('railSyncSub').textContent = 'Contacting Plex';
+  $('railSyncFill').style.width = '0%';
+  await fetch('/api/sync', {method:'POST'});
+  poll(true);
+}
 
 let pollTimer = null;
-async function poll() {
+let pollBusy = false;
+function setStatusChip(state, text, title='') {
+  const chip = $('statusChip');
+  chip.classList.remove('syncing', 'stale', 'synced');
+  if (state) chip.classList.add(state);
+  $('statusText').textContent = text;
+  chip.title = title;
+}
+function setSidebarSync(d) {
+  const total = Number(d.total_count || 0);
+  const synced = Number(d.synced_count || 0);
+  const pct = total > 0 ? Math.min(100, Math.round(synced / total * 100)) : 0;
+  $('railSync').classList.add('on');
+  $('railSyncText').textContent = d.sync_message || 'Pinging the fleet...';
+  $('railSyncSub').textContent = total > 0 ? `${pct}% complete · ${synced} of ${total}` : 'Awaiting response from Plex';
+  $('railSyncFill').style.width = `${pct}%`;
+}
+function setIdleSyncUi(d) {
+  $('syncBtn').disabled = false;
+  $('syncBtn').classList.remove('syncing');
+  $('railSync').classList.remove('on');
+  if (d.last_sync) {
+    const syncedAt = new Date(Number(d.last_sync) * 1000);
+    setStatusChip('synced', 'Synced', `Last sync: ${syncedAt.toLocaleString()}`);
+  } else {
+    setStatusChip('stale', 'Out of Sync', 'Run a scan to compare Plex with streaming availability');
+  }
+}
+async function poll(watchForStart=false) {
   if (pollTimer) clearInterval(pollTimer);
-  pollTimer = setInterval(async () => {
+  let startGrace = watchForStart ? 5 : 0;
+  const tick = async () => {
+    if (pollBusy) return;
+    pollBusy = true;
+    try {
     const d = await (await fetch('/api/status')).json();
     $('t-all').textContent = d.total ?? '—';
     $('t-movie').textContent = d.movies ?? '—';
     $('t-tv').textContent = d.tv ?? '—';
 
-    const chip = $('statusChip');
     if (d.is_syncing) {
-      chip.classList.add('syncing');
-      $('statusText').textContent = 'Pinging';
+      startGrace = 0;
+      setStatusChip('syncing', 'Pinging');
       $('syncBtn').disabled = true;
-      $('console').classList.add('on');
-      if (d.total_count > 0) {
-        const pct = Math.round(d.synced_count/d.total_count*100);
-        $('consoleFill').style.width = pct+'%';
-        $('consoleTitle').textContent = d.sync_message;
-        $('consoleSub').textContent = pct+'% — contacts logged';
-      } else {
-        $('consoleSub').textContent = 'Awaiting response from Plex';
+      $('syncBtn').classList.add('syncing');
+      setSidebarSync(d);
+      const now = Date.now();
+      const progressed = d.synced_count !== lastSyncedCount;
+      if (progressed && now - lastLiveRefresh > 2200) {
+        lastSyncedCount = d.synced_count;
+        lastLiveRefresh = now;
+        await loadTitles({preserveScroll: true});
       }
     } else {
-      chip.classList.remove('syncing');
-      $('statusText').textContent = d.last_sync ? 'Synced' : 'Idle';
-      $('syncBtn').disabled = false;
-      $('console').classList.remove('on');
-      clearInterval(pollTimer); pollTimer = null;
-      loadTitles(); loadCounts();
+      setIdleSyncUi(d);
+      if (startGrace > 0) {
+        startGrace -= 1;
+      } else {
+        clearInterval(pollTimer); pollTimer = null;
+        lastSyncedCount = -1;
+        loadTitles({preserveScroll: true}); loadCounts();
+      }
     }
-  }, 1200);
+    } catch (e) {
+      console.warn('status poll failed', e);
+    } finally {
+      pollBusy = false;
+    }
+  };
+  pollTimer = setInterval(tick, 1200);
+  tick();
 }
 
 // ════ INIT ════
 (async () => {
+  renderServiceChips();
   const needsSetup = await checkSetup();
   if (!needsSetup) {
     poll();
@@ -2324,7 +2632,7 @@ async function saveSettings() {
   const d = await res.json();
   if (d.ok) {
     closeSettings();
-    toast(`Configuration saved — ${d.updated.length} field${d.updated.length !== 1 ? 's' : ''} updated`);
+    toast('Settings saved');
   } else {
     toast('Save failed — check console');
   }
