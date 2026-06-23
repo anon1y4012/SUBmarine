@@ -1,7 +1,9 @@
 import hashlib
+import hmac
 import logging
 import os
 import re
+import secrets
 import sqlite3
 import threading
 import time
@@ -47,6 +49,15 @@ def apply_log_level(level):
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 64 * 1024
 
+AUTH_TOKEN_ENV = 'SUBMARINE_AUTH_TOKEN'
+AUTH_TOKEN_SETTING = 'auth_token_sha256'
+AUTH_PROTECTED_PREFIXES = (
+    '/api/settings',
+    '/api/sync',
+    '/api/remove/',
+    '/api/debug/',
+)
+
 @app.after_request
 def add_security_headers(response):
     response.headers.setdefault('X-Content-Type-Options', 'nosniff')
@@ -85,6 +96,23 @@ def reject_cross_site_writes():
 
     return None
 
+@app.before_request
+def require_authentication():
+    if not _auth_required_for_request():
+        return None
+
+    token = _request_auth_token()
+    if token and _auth_token_valid(token):
+        return None
+
+    response = jsonify({
+        'ok': False,
+        'error': 'Authentication required',
+        'auth_required': True,
+    })
+    response.headers['WWW-Authenticate'] = 'Bearer realm="SUBmarine"'
+    return response, 401
+
 # --- Config ---
 def _bounded_workers(value, fallback=8):
     try:
@@ -113,6 +141,7 @@ log.info(f"  TMDB_API_KEY:     {'SET' if TMDB_API_KEY else 'NOT SET'}")
 log.info(f"  DB_PATH:          {DB_PATH}")
 log.info(f"  SYNC_WORKERS:     {SYNC_WORKERS}")
 log.info(f"  LOG_LEVEL:        {DEFAULT_LOG_LEVEL}")
+log.info(f"  AUTH_TOKEN:       {'SET' if os.getenv(AUTH_TOKEN_ENV) else 'NOT SET'}")
 
 # --- Services ---
 # Canonical US subscription streaming services (flatrate only), ordered by prominence.
@@ -273,6 +302,10 @@ def init_db():
     }
     for k, v in defaults.items():
         db.execute('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)', (k, v))
+    env_auth_token = os.getenv(AUTH_TOKEN_ENV, '').strip()
+    if env_auth_token:
+        db.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)',
+                   (AUTH_TOKEN_SETTING, _hash_auth_token(env_auth_token)))
 
     # Reset any stuck is_syncing flag from a previous crash
     db.execute("UPDATE sync_status SET is_syncing=0 WHERE is_syncing=1")
@@ -299,6 +332,57 @@ def get_all_settings_db(db):
 def is_setup_complete():
     """Return True if the user has completed first-run setup."""
     return get_setting('setup_complete') == '1'
+
+def _hash_auth_token(token):
+    return hashlib.sha256(str(token).encode('utf-8')).hexdigest()
+
+def _stored_auth_hash():
+    env_auth_token = os.getenv(AUTH_TOKEN_ENV, '').strip()
+    if env_auth_token:
+        return _hash_auth_token(env_auth_token)
+    return get_setting(AUTH_TOKEN_SETTING)
+
+def _auth_token_configured():
+    return bool(_stored_auth_hash())
+
+def _auth_token_valid(token):
+    digest = _stored_auth_hash()
+    if not digest:
+        return False
+    return hmac.compare_digest(_hash_auth_token(token), digest)
+
+def _request_auth_token():
+    auth = request.headers.get('Authorization', '')
+    if auth.lower().startswith('bearer '):
+        return auth.split(' ', 1)[1].strip()
+    return request.headers.get('X-Submarine-Token', '').strip()
+
+def _auth_required_for_request():
+    path = request.path
+
+    if path == '/api/setup/status':
+        return False
+    if not is_setup_complete():
+        return False
+    if not _auth_token_configured():
+        return False
+    if path == '/api/setup/save':
+        return True
+    if path.startswith(AUTH_PROTECTED_PREFIXES):
+        return True
+    return False
+
+def _ensure_auth_token(db):
+    """Return a one-time plaintext token when setup must mint the first credential."""
+    if os.getenv(AUTH_TOKEN_ENV, '').strip():
+        return None
+    existing = db.execute('SELECT value FROM settings WHERE key=?', (AUTH_TOKEN_SETTING,)).fetchone()
+    if existing and existing['value']:
+        return None
+    token = secrets.token_urlsafe(32)
+    db.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)',
+               (AUTH_TOKEN_SETTING, _hash_auth_token(token)))
+    return token
 
 def get_setting(key, fallback=''):
     """Read a setting from DB, falling back to env var default."""
@@ -972,11 +1056,15 @@ def api_setup_save():
         if key in allowed and value is not None:
             db.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)',
                        (key, str(value).strip()))
+    auth_token = _ensure_auth_token(db)
     db.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('setup_complete', '1')")
     db.commit()
     db.close()
     log.info("[SETUP] First-run configuration saved")
-    return jsonify({'ok': True})
+    payload = {'ok': True}
+    if auth_token:
+        payload['auth_token'] = auth_token
+    return jsonify(payload)
 
 @app.route('/api/settings', methods=['GET'])
 def api_settings_get():
