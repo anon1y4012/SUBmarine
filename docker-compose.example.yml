@@ -15,6 +15,9 @@ services:
     environment:
       DB_PATH: /data/submarine.db
       SYNC_WORKERS: "8"       # Parallel TMDB threads. Raise to 16 for faster pings.
+      # Existing installs: set this to enforce token auth after upgrade.
+      # New installs mint a setup token automatically if this is omitted.
+      # SUBMARINE_AUTH_TOKEN: "choose-a-long-random-token"
 
 volumes:
   submarine-data:

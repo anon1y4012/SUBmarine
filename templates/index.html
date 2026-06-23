@@ -1513,6 +1513,7 @@ const STORAGE_KEYS = {
   serviceOrder: 'submarine.serviceOrder',
   serviceSort: 'submarine.serviceSort',
   serviceLists: 'submarine.serviceLists',
+  authToken: 'submarine.authToken',
 };
 const SERVICE_COLORS = {
   'Netflix': '#E50914',
@@ -1550,6 +1551,36 @@ const SERVICE_COLORS = {
 
 const $ = id => document.getElementById(id);
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function getAuthToken() {
+  try {
+    return localStorage.getItem(STORAGE_KEYS.authToken) || '';
+  } catch {
+    return '';
+  }
+}
+function saveAuthToken(token) {
+  try {
+    if (token) localStorage.setItem(STORAGE_KEYS.authToken, token);
+  } catch {}
+}
+async function authFetch(url, options = {}) {
+  const opts = {...options};
+  const headers = new Headers(opts.headers || {});
+  const token = getAuthToken();
+  if (token && !headers.has('Authorization')) {
+    headers.set('Authorization', 'Bearer ' + token);
+  }
+  opts.headers = headers;
+  let response = await fetch(url, opts);
+  if (response.status !== 401) return response;
+
+  const entered = window.prompt('Enter your SUBmarine access token');
+  if (!entered) return response;
+  saveAuthToken(entered.trim());
+  headers.set('Authorization', 'Bearer ' + entered.trim());
+  response = await fetch(url, opts);
+  return response;
+}
 function loadJSON(key, fallback) {
   try {
     const raw = localStorage.getItem(key);
@@ -1926,7 +1957,7 @@ async function handleRemove(id) {
   $('modalBg').classList.add('on');
 
   try {
-    const r = await fetch(`/api/remove/${id}/preview`);
+    const r = await authFetch(`/api/remove/${id}/preview`);
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || 'Could not prepare removal');
     renderRemovalConfirmation(id, t, d);
@@ -2129,7 +2160,7 @@ async function confirmMovieRemoval(id) {
   btn.disabled = true;
   btn.textContent = 'Removing...';
   try {
-    const r = await fetch(`/api/remove/${id}`, {
+    const r = await authFetch(`/api/remove/${id}`, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
@@ -2194,7 +2225,7 @@ async function handleBatchRemove() {
 
   const previews = await Promise.all(movies.map(async title => {
     try {
-      const r = await fetch(`/api/remove/${title.id}/preview`);
+      const r = await authFetch(`/api/remove/${title.id}/preview`);
       const d = await r.json();
       if (!r.ok) return { title, error: d.error || 'Could not prepare removal' };
       return { title, preview: d };
@@ -2314,7 +2345,7 @@ async function confirmBatchRemoval() {
     btn.textContent = `Removing ${i + 1}/${work.length}...`;
     if (status) status.innerHTML = `Removing ${esc(item.title.title)} (${i + 1}/${work.length})...`;
     try {
-      const r = await fetch(`/api/remove/${item.title.id}`, {
+      const r = await authFetch(`/api/remove/${item.title.id}`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(payload),
@@ -2452,7 +2483,7 @@ async function triggerSync() {
   $('railSyncText').textContent = 'Starting sync...';
   $('railSyncSub').textContent = 'Contacting Plex';
   $('railSyncFill').style.width = '0%';
-  await fetch('/api/sync', {method:'POST'});
+  await authFetch('/api/sync', {method:'POST'});
   poll(true);
 }
 
@@ -2553,7 +2584,7 @@ async function poll(watchForStart=false) {
 
 // ════ SETTINGS ════
 async function openSettings() {
-  const res = await fetch('/api/settings');
+  const res = await authFetch('/api/settings');
   const s = await res.json();
   // Populate fields
   $('sf-plex_ip').value       = s.plex_ip || '';
@@ -2628,7 +2659,7 @@ async function saveSettings() {
   if (cleanuparrKey) payload.cleanuparr_api_key = cleanuparrKey;
   if (torrentPassword) payload.torrent_client_password = torrentPassword;
 
-  const res = await fetch('/api/settings', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+  const res = await authFetch('/api/settings', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
   const d = await res.json();
   if (d.ok) {
     closeSettings();
@@ -2675,7 +2706,7 @@ async function testConn(target) {
   }
 
   try {
-    const r = await fetch('/api/settings/test', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+    const r = await authFetch('/api/settings/test', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
     const d = await r.json();
     res.className = 's-test-result ' + (d.ok ? 'ok' : 'err');
     res.textContent = (d.ok ? '✓ ' : '✗ ') + d.msg;
@@ -2706,7 +2737,7 @@ async function discoverService(appName) {
   };
 
   try {
-    const r = await fetch('/api/settings/discover', {
+    const r = await authFetch('/api/settings/discover', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ targets: [appName], hint })
@@ -2844,13 +2875,14 @@ async function setupSaveAndContinue() {
   next.disabled = true; next.textContent = 'Saving…';
 
   try {
-    const r = await fetch('/api/setup/save', {
+    const r = await authFetch('/api/setup/save', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(payload)
     });
     const d = await r.json();
     if (d.ok) {
+      if (d.auth_token) saveAuthToken(d.auth_token);
       setupStep = SETUP_STEPS;
       setupUpdateTrack();
     } else {
@@ -2873,7 +2905,7 @@ async function setupTestPlex() {
   const port  = $('su-plex_port').value.trim() || '32400';
   const token = $('su-plex_token').value.trim();
   try {
-    const r = await fetch('/api/settings/test', {
+    const r = await authFetch('/api/settings/test', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ target: 'plex', plex_ip: ip, plex_port: port, plex_token: token })
     });
@@ -2895,7 +2927,7 @@ async function setupTestTmdb() {
   msg.textContent = ''; msg.className = 'setup-test-msg';
   const key = $('su-tmdb_key').value.trim();
   try {
-    const r = await fetch('/api/settings/test', {
+    const r = await authFetch('/api/settings/test', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ target: 'tmdb', tmdb_api_key: key })
     });
@@ -2917,7 +2949,7 @@ async function setupDiscover(appName) {
   row.style.display = 'flex';
   msgEl.className = 'setup-test-msg'; msgEl.textContent = 'Scanning…';
   try {
-    const r = await fetch('/api/settings/discover', {
+    const r = await authFetch('/api/settings/discover', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ targets: [appName] })
     });
