@@ -4,7 +4,9 @@
 
 services:
   submarine:
-    build: .
+    image: ghcr.io/anon1y4012/submarine:latest
+    # Or build from source instead of pulling the image:
+    # build: .
     container_name: submarine
     restart: unless-stopped
     ports:
@@ -15,6 +17,8 @@ services:
     environment:
       DB_PATH: /data/submarine.db
       SYNC_WORKERS: "8"       # Parallel TMDB threads. Raise to 16 for faster pings.
+      # WEB_WORKERS: "2"      # Gunicorn worker processes.
+      # LOG_LEVEL: INFO       # DEBUG, INFO, WARNING, or ERROR.
       # Existing installs: set this to enforce token auth after upgrade.
       # New installs mint a setup token automatically if this is omitted.
       # SUBMARINE_AUTH_TOKEN: "choose-a-long-random-token"
