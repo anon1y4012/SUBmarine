@@ -7,7 +7,12 @@ __pycache__/
 *.pyc
 *.pyo
 .venv/
+.pytest_cache/
+.ruff_cache/
 
 # Data
 *.db
 *.sqlite
+
+# OS cruft
+.DS_Store
