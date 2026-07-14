@@ -16,3 +16,6 @@ __pycache__/
 
 # OS cruft
 .DS_Store
+
+# Local Claude Code launch config
+.claude/launch.json
