@@ -11,6 +11,7 @@ SUBmarine compares your Plex movie and TV libraries against the streaming servic
 - **Fast incremental sync** — titles are fingerprinted, so re-syncs only hit TMDB for new or changed items; parallel workers keep full syncs quick.
 - **Poster grid & list views** — searchable, filterable by service and media type, with saved service lists.
 - **Guided removal (movies)** — one dialog can remove a title from Plex (with files), Radarr, active downloads, matched torrent-client entries (qBittorrent / Transmission), and trigger Cleanuparr — each step opt-in and previewed first.
+- **Freeable-space measurement** — each title's detail view lists the actual files on disk across Plex, Radarr/Sonarr, and the torrent client, deduplicating hardlinked copies (matched by identical byte size) so a 1080p and a 4K copy count separately but a torrent and its Radarr import count once. Selecting titles in list view keeps a live running total of the space a cleanup would free.
 - **First-run setup wizard** — connection testing and auto-discovery for Radarr, Sonarr, Cleanuparr, and torrent clients on common hosts/ports.
 - **Single container** — Flask + SQLite, no external database.
 
@@ -61,6 +62,7 @@ Read-only endpoints are open on the trusted network; state-changing and credenti
 | `/api/settings` | GET/POST | ✔ | Read (secrets masked) / update settings |
 | `/api/settings/test` | POST | ✔ | Test a connection (Plex, TMDB, *arr, torrent client) |
 | `/api/settings/discover` | POST | ✔ | Probe common hosts/ports for integrations |
+| `/api/space/<id>` | GET | ✔ | Unique on-disk files and freeable bytes for a title |
 | `/api/remove/<id>/preview` | GET | ✔ | Preview what a removal would touch |
 | `/api/remove/<id>` | POST | ✔ | Execute confirmed removal actions |
 

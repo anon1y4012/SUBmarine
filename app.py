@@ -55,6 +55,7 @@ AUTH_PROTECTED_PREFIXES = (
     '/api/settings',
     '/api/sync',
     '/api/remove/',
+    '/api/space/',
     '/api/debug/',
 )
 
@@ -1180,6 +1181,12 @@ def _response_excerpt(response, limit=600):
     text = str(getattr(response, 'text', '') or '').replace('\n', ' ').strip()
     return text[:limit] if text else '<empty>'
 
+def _int_or_zero(value):
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
 def _torrent_client_type(value=None):
     value = str(value if value is not None else get_setting('torrent_client_type')).strip().lower()
     return value if value in ('qbittorrent', 'transmission') else ''
@@ -1222,6 +1229,7 @@ def _qbittorrent_list_torrents(url=None, username=None, password=None):
             'status': str(item.get('state') or ''),
             'save_path': str(item.get('save_path') or ''),
             'content_path': str(item.get('content_path') or ''),
+            'size': _int_or_zero(item.get('size')),
             'client': 'qBittorrent',
         }
         for item in torrents
@@ -1267,7 +1275,7 @@ def _transmission_rpc(method, arguments=None, url=None, username=None, password=
 def _transmission_list_torrents(url=None, username=None, password=None):
     data = _transmission_rpc(
         'torrent-get',
-        {'fields': ['id', 'hashString', 'name', 'downloadDir', 'status', 'labels']},
+        {'fields': ['id', 'hashString', 'name', 'downloadDir', 'status', 'labels', 'totalSize']},
         url,
         username,
         password,
@@ -1285,6 +1293,7 @@ def _transmission_list_torrents(url=None, username=None, password=None):
             'status': str(item.get('status') or ''),
             'save_path': str(item.get('downloadDir') or ''),
             'content_path': str(item.get('downloadDir') or ''),
+            'size': _int_or_zero(item.get('totalSize')),
             'client': 'Transmission',
         }
         for item in torrents
@@ -1302,9 +1311,33 @@ def _list_torrent_client_entries(client_type=None, url=None, username=None, pass
         return _transmission_list_torrents(url, username, password)
     raise ValueError('Unsupported torrent client')
 
+# Short-lived cache of the torrent list so measuring freeable space for a
+# batch selection does not hammer the torrent client with one full listing
+# per title. Deletions invalidate it immediately.
+_torrent_list_cache_lock = threading.Lock()
+_torrent_list_cache = {'expires': 0.0, 'entries': None}
+TORRENT_LIST_CACHE_TTL = 20
+
+def _cached_torrent_entries():
+    now = time.time()
+    with _torrent_list_cache_lock:
+        if _torrent_list_cache['entries'] is not None and _torrent_list_cache['expires'] > now:
+            return _torrent_list_cache['entries']
+    entries = _list_torrent_client_entries()
+    with _torrent_list_cache_lock:
+        _torrent_list_cache['entries'] = entries
+        _torrent_list_cache['expires'] = time.time() + TORRENT_LIST_CACHE_TTL
+    return entries
+
+def _invalidate_torrent_cache():
+    with _torrent_list_cache_lock:
+        _torrent_list_cache['entries'] = None
+        _torrent_list_cache['expires'] = 0.0
+
 def _delete_torrent_client_entries(ids, delete_files=True):
     client_type = _torrent_client_type()
     log.info(f"[TORRENT] Delete start client={client_type} count={len(ids)} delete_files={delete_files}")
+    _invalidate_torrent_cache()
     if client_type == 'qbittorrent':
         return _qbittorrent_delete_torrents([str(item) for item in ids], delete_files)
     if client_type == 'transmission':
@@ -1327,11 +1360,32 @@ def _torrent_match_terms(title, year='', radarr_movie=None):
                 terms.append(text)
     return [term for term in dict.fromkeys(terms) if term]
 
-def _torrent_entry_matches(entry, terms, year=''):
+def _torrent_path_match(entry, arr_paths):
+    """True when the torrent's own content path overlaps a library path we trust."""
+    content = str(entry.get('content_path') or '').replace('\\', '/').rstrip('/').lower()
+    if not content:
+        return False
+    for library_path in arr_paths or ():
+        library_path = str(library_path or '').replace('\\', '/').rstrip('/').lower()
+        if not library_path:
+            continue
+        if content == library_path or content.startswith(library_path + '/') or library_path.startswith(content + '/'):
+            return True
+    return False
+
+def _torrent_entry_matches(entry, terms, year='', arr_paths=()):
+    if _torrent_path_match(entry, arr_paths):
+        return True
     text = _match_text(' '.join(str(entry.get(key) or '') for key in ('name', 'save_path', 'content_path', 'category', 'tags')))
     if not text:
         return False
     year = str(year or '').strip()
+    if year:
+        # A remake or sequel usually differs only by year; if the entry names
+        # years and ours is not among them, it is a different release.
+        years_in_text = set(re.findall(r'\b(?:19|20)\d{2}\b', text))
+        if years_in_text and year not in years_in_text:
+            return False
     for term in terms:
         if term and term in text and (not year or year in text or len(term.split()) > 3):
             return True
@@ -1340,16 +1394,24 @@ def _torrent_entry_matches(entry, terms, year=''):
         return True
     return False
 
-def _torrent_matches_for_title(title, radarr=None):
+def _arr_library_paths(radarr_movie):
+    if not radarr_movie:
+        return ()
+    return tuple(path for path in (radarr_movie.get('path'), radarr_movie.get('movie_file_path')) if path)
+
+def _torrent_matches_for_title(title, radarr=None, entries=None):
     if not _torrent_client_configured():
         return {'configured': False, 'matches': [], 'error': ''}
     try:
-        entries = _list_torrent_client_entries()
+        if entries is None:
+            entries = _list_torrent_client_entries()
         year = str(title.get('year') or '')
-        terms = _torrent_match_terms(title.get('title'), year, radarr.get('movie') if radarr else None)
+        radarr_movie = radarr.get('movie') if radarr else None
+        terms = _torrent_match_terms(title.get('title'), year, radarr_movie)
+        arr_paths = _arr_library_paths(radarr_movie)
         matches = []
         for entry in entries:
-            if not _torrent_entry_matches(entry, terms, year):
+            if not _torrent_entry_matches(entry, terms, year, arr_paths):
                 continue
             matches.append({
                 'id': entry['id'],
@@ -1357,6 +1419,8 @@ def _torrent_matches_for_title(title, radarr=None):
                 'category': entry.get('category', ''),
                 'status': entry.get('status', ''),
                 'save_path': entry.get('save_path', ''),
+                'content_path': entry.get('content_path', ''),
+                'size': _int_or_zero(entry.get('size')),
                 'client': entry.get('client', ''),
             })
         log.info(f"[TORRENT] Matched torrent-client entries count={len(matches)} title={title.get('title')!r}")
@@ -1532,6 +1596,318 @@ def _delete_local_title(title_id):
     db.execute('DELETE FROM titles WHERE id=?', (title_id,))
     db.commit()
     db.close()
+
+# --- Freeable disk space ---
+# SUBmarine talks to Plex/Radarr/Sonarr/torrent clients over HTTP and has no
+# access to the media filesystem, so hardlinks cannot be detected by inode.
+# Instead, file records from every source are grouped by exact byte size:
+# a Radarr import hardlinked from a torrent is byte-identical, while distinct
+# copies (1080p vs 4K, different encodes) never are. Each group counts once
+# toward the freeable total.
+
+def _plex_file_records(title):
+    result = {'configured': False, 'records': [], 'error': ''}
+    _ip = get_setting('plex_ip', PLEX_IP)
+    _port = get_setting('plex_port', PLEX_PORT)
+    _token = get_setting('plex_token', PLEX_TOKEN)
+    rating_key = str(title.get('plex_rating_key') or '')
+    if not (_ip and _token and rating_key.isdigit()):
+        return result
+    result['configured'] = True
+    suffix = '/allLeaves' if title.get('media_type') == 'tv' else ''
+    url = f'http://{_ip}:{_port}/library/metadata/{rating_key}{suffix}'
+    try:
+        response = requests.get(url, headers=_plex_headers(_token), timeout=15)
+        response.raise_for_status()
+        root = ET.fromstring(response.content)
+        for part in root.iter('Part'):
+            path = str(part.attrib.get('file') or '')
+            size = _int_or_zero(part.attrib.get('size'))
+            if path or size:
+                result['records'].append({'path': path, 'bytes': size, 'source': 'plex'})
+    except Exception as exc:
+        log.warning(f"[SPACE] Plex file lookup failed for rating_key={rating_key}: {type(exc).__name__}")
+        result['error'] = 'Could not read file details from Plex'
+    return result
+
+def _radarr_file_records(title):
+    result = {'configured': False, 'records': [], 'movie': None, 'error': ''}
+    url = _normalize_url(get_setting('radarr_url'))
+    key = get_setting('radarr_api_key')
+    if not (url and key):
+        return result
+    result['configured'] = True
+    try:
+        tmdb_id = int(title.get('tmdb_id'))
+    except (TypeError, ValueError):
+        result['error'] = 'No TMDB match for Radarr lookup'
+        return result
+    try:
+        response = requests.get(
+            url + '/api/v3/movie',
+            headers={'X-Api-Key': key},
+            params={'tmdbId': tmdb_id},
+            timeout=10,
+        )
+        response.raise_for_status()
+        movies = response.json()
+        if not isinstance(movies, list):
+            raise ValueError('Radarr movie response was not a list')
+        movie = None
+        for item in movies:
+            try:
+                if int(item.get('tmdbId', -1)) == tmdb_id:
+                    movie = item
+                    break
+            except (AttributeError, TypeError, ValueError):
+                continue
+        if not movie:
+            result['error'] = 'Not tracked in Radarr'
+            return result
+        movie_file = movie.get('movieFile') or {}
+        result['movie'] = {
+            'id': int(movie['id']),
+            'title': str(movie.get('title') or ''),
+            'path': str(movie.get('path') or ''),
+            'movie_file_path': str(movie_file.get('path') or ''),
+        }
+        path = str(movie_file.get('path') or '')
+        size = _int_or_zero(movie_file.get('size'))
+        if path or size:
+            result['records'].append({'path': path, 'bytes': size, 'source': 'radarr'})
+    except Exception as exc:
+        log.warning(f"[SPACE] Radarr file lookup failed: {type(exc).__name__}")
+        result['error'] = 'Could not look up this movie in Radarr'
+    return result
+
+def _sonarr_file_records(title):
+    result = {'configured': False, 'records': [], 'series': None, 'error': ''}
+    url = _normalize_url(get_setting('sonarr_url'))
+    key = get_setting('sonarr_api_key')
+    if not (url and key):
+        return result
+    result['configured'] = True
+    headers = {'X-Api-Key': key}
+    try:
+        response = requests.get(url + '/api/v3/series', headers=headers, timeout=15)
+        response.raise_for_status()
+        series_list = response.json()
+        if not isinstance(series_list, list):
+            raise ValueError('Sonarr series response was not a list')
+        tmdb_id = str(title.get('tmdb_id') or '')
+        want_title = _match_text(title.get('title'))
+        want_year = str(title.get('year') or '')
+        series = None
+        # Sonarr v4 exposes tmdbId; fall back to a title/year match on v3.
+        if tmdb_id:
+            series = next(
+                (item for item in series_list
+                 if str(item.get('tmdbId') or '') == tmdb_id),
+                None,
+            )
+        if series is None:
+            series = next(
+                (item for item in series_list
+                 if _match_text(item.get('title')) == want_title
+                 and (not want_year or str(item.get('year') or '') == want_year)),
+                None,
+            )
+        if not series:
+            result['error'] = 'Not tracked in Sonarr'
+            return result
+        series_id = int(series['id'])
+        result['series'] = {
+            'id': series_id,
+            'title': str(series.get('title') or ''),
+            'path': str(series.get('path') or ''),
+        }
+        response = requests.get(
+            url + '/api/v3/episodefile',
+            headers=headers,
+            params={'seriesId': series_id},
+            timeout=15,
+        )
+        response.raise_for_status()
+        episode_files = response.json()
+        if not isinstance(episode_files, list):
+            raise ValueError('Sonarr episodefile response was not a list')
+        for item in episode_files:
+            if not isinstance(item, dict):
+                continue
+            path = str(item.get('path') or '')
+            size = _int_or_zero(item.get('size'))
+            if path or size:
+                result['records'].append({'path': path, 'bytes': size, 'source': 'sonarr'})
+    except Exception as exc:
+        log.warning(f"[SPACE] Sonarr file lookup failed: {type(exc).__name__}")
+        result['error'] = 'Could not look up this show in Sonarr'
+    return result
+
+def _join_torrent_path(base, name):
+    base = str(base or '').rstrip('/\\')
+    name = str(name or '').lstrip('/\\')
+    if base and name:
+        return f'{base}/{name}'
+    return base or name
+
+def _torrent_match_file_records(matches):
+    """Per-file listing of matched torrents; falls back to torrent totals."""
+    records = []
+    client_type = _torrent_client_type()
+    if client_type == 'qbittorrent':
+        url, session = _qbittorrent_session()
+        for match in matches:
+            try:
+                response = session.get(
+                    url + '/api/v2/torrents/files',
+                    params={'hash': match['id']},
+                    timeout=12,
+                )
+                response.raise_for_status()
+                files = response.json()
+                if not isinstance(files, list) or not files:
+                    raise ValueError('empty file list')
+                for item in files:
+                    records.append({
+                        'path': _join_torrent_path(match.get('save_path'), item.get('name')),
+                        'bytes': _int_or_zero(item.get('size')),
+                        'source': 'torrent',
+                    })
+            except Exception as exc:
+                log.warning(f"[SPACE] qBittorrent file listing failed for {match.get('name')!r}: {type(exc).__name__}")
+                records.append({
+                    'path': str(match.get('content_path') or ''),
+                    'bytes': _int_or_zero(match.get('size')),
+                    'source': 'torrent',
+                })
+    elif client_type == 'transmission':
+        by_id = {match['id']: match for match in matches}
+        try:
+            data = _transmission_rpc(
+                'torrent-get',
+                {'ids': list(by_id.keys()), 'fields': ['id', 'downloadDir', 'files']},
+            )
+            seen_ids = set()
+            for torrent in data.get('torrents', []):
+                seen_ids.add(torrent.get('id'))
+                base = str(torrent.get('downloadDir') or '')
+                files = torrent.get('files') or []
+                if not files:
+                    match = by_id.get(torrent.get('id'), {})
+                    records.append({
+                        'path': str(match.get('content_path') or base),
+                        'bytes': _int_or_zero(match.get('size')),
+                        'source': 'torrent',
+                    })
+                    continue
+                for item in files:
+                    records.append({
+                        'path': _join_torrent_path(base, item.get('name')),
+                        'bytes': _int_or_zero(item.get('length')),
+                        'source': 'torrent',
+                    })
+            for torrent_id, match in by_id.items():
+                if torrent_id not in seen_ids:
+                    records.append({
+                        'path': str(match.get('content_path') or ''),
+                        'bytes': _int_or_zero(match.get('size')),
+                        'source': 'torrent',
+                    })
+        except Exception as exc:
+            log.warning(f"[SPACE] Transmission file listing failed: {type(exc).__name__}")
+            for match in matches:
+                records.append({
+                    'path': str(match.get('content_path') or ''),
+                    'bytes': _int_or_zero(match.get('size')),
+                    'source': 'torrent',
+                })
+    return records
+
+def _torrent_file_records(title, radarr_movie=None):
+    """Files held by matched torrent-client entries, using the same matcher as deletion."""
+    result = {'configured': False, 'records': [], 'matches': [], 'error': ''}
+    if not _torrent_client_configured():
+        return result
+    result['configured'] = True
+    try:
+        entries = _cached_torrent_entries()
+        torrent = _torrent_matches_for_title(
+            title,
+            {'movie': radarr_movie} if radarr_movie else None,
+            entries=entries,
+        )
+        if torrent['error']:
+            result['error'] = torrent['error']
+            return result
+        result['matches'] = [
+            {'id': match['id'], 'name': match['name'], 'client': match.get('client', '')}
+            for match in torrent['matches']
+        ]
+        if torrent['matches']:
+            result['records'] = _torrent_match_file_records(torrent['matches'])
+    except Exception as exc:
+        log.warning(f"[SPACE] Torrent file lookup failed: {type(exc).__name__}")
+        result['error'] = 'Could not inspect torrent client'
+    return result
+
+def _group_file_records(records):
+    """Collapse per-source file records into unique physical files (see note above)."""
+    groups = {}
+    for record in records:
+        path = str(record.get('path') or '').strip()
+        size = _int_or_zero(record.get('bytes'))
+        if not path and not size:
+            continue
+        key = ('size', size) if size > 0 else ('path', path.replace('\\', '/').lower())
+        group = groups.setdefault(key, {'bytes': size, 'paths': {}})
+        label = path or '(path unavailable)'
+        group['paths'].setdefault(label, set()).add(str(record.get('source') or ''))
+    files = []
+    for group in groups.values():
+        files.append({
+            'bytes': group['bytes'],
+            'paths': [
+                {'path': path, 'sources': sorted(source for source in sources if source)}
+                for path, sources in sorted(group['paths'].items())
+            ],
+        })
+    files.sort(key=lambda f: (-f['bytes'], f['paths'][0]['path']))
+    return files, sum(f['bytes'] for f in files)
+
+@app.route('/api/space/<int:title_id>')
+def api_title_space(title_id):
+    """Measure the disk space that deleting this title everywhere would free."""
+    title = _removal_title(title_id)
+    if not title:
+        return jsonify({'ok': False, 'error': 'Title not found'}), 404
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        plex_future = pool.submit(_plex_file_records, title)
+        if title['media_type'] == 'movie':
+            arr_name = 'radarr'
+            arr_future = pool.submit(_radarr_file_records, title)
+        else:
+            arr_name = 'sonarr'
+            arr_future = pool.submit(_sonarr_file_records, title)
+        plex = plex_future.result()
+        arr = arr_future.result()
+
+    torrent = _torrent_file_records(title, arr.get('movie'))
+    files, total = _group_file_records(plex['records'] + arr['records'] + torrent['records'])
+    return jsonify({
+        'ok': True,
+        'title_id': title_id,
+        'title': title['title'],
+        'media_type': title['media_type'],
+        'total_bytes': total,
+        'files': files,
+        'torrent_matches': torrent['matches'],
+        'sources': {
+            'plex': {'configured': plex['configured'], 'error': plex['error']},
+            arr_name: {'configured': arr['configured'], 'error': arr['error']},
+            'torrent_client': {'configured': torrent['configured'], 'error': torrent['error']},
+        },
+    })
 
 @app.route('/api/remove/<int:title_id>/preview')
 def api_remove_preview(title_id):
