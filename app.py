@@ -1230,11 +1230,23 @@ def _qbittorrent_list_torrents(url=None, username=None, password=None):
             'save_path': str(item.get('save_path') or ''),
             'content_path': str(item.get('content_path') or ''),
             'size': _int_or_zero(item.get('size')),
+            'seeding_seconds': _qbittorrent_seeding_seconds(item),
             'client': 'qBittorrent',
         }
         for item in torrents
         if item.get('hash')
     ]
+
+def _qbittorrent_seeding_seconds(item):
+    # seeding_time is only reported by newer qBittorrent versions; older ones
+    # still expose completion_on, from which elapsed seed time follows.
+    seeding = _int_or_zero(item.get('seeding_time'))
+    if seeding:
+        return seeding
+    completed_at = _int_or_zero(item.get('completion_on'))
+    if completed_at:
+        return max(0, int(time.time()) - completed_at)
+    return 0
 
 def _qbittorrent_delete_torrents(ids, delete_files=True):
     url, session = _qbittorrent_session()
@@ -1275,7 +1287,7 @@ def _transmission_rpc(method, arguments=None, url=None, username=None, password=
 def _transmission_list_torrents(url=None, username=None, password=None):
     data = _transmission_rpc(
         'torrent-get',
-        {'fields': ['id', 'hashString', 'name', 'downloadDir', 'status', 'labels', 'totalSize']},
+        {'fields': ['id', 'hashString', 'name', 'downloadDir', 'status', 'labels', 'totalSize', 'secondsSeeding']},
         url,
         username,
         password,
@@ -1294,6 +1306,7 @@ def _transmission_list_torrents(url=None, username=None, password=None):
             'save_path': str(item.get('downloadDir') or ''),
             'content_path': str(item.get('downloadDir') or ''),
             'size': _int_or_zero(item.get('totalSize')),
+            'seeding_seconds': _int_or_zero(item.get('secondsSeeding')),
             'client': 'Transmission',
         }
         for item in torrents
@@ -1421,6 +1434,7 @@ def _torrent_matches_for_title(title, radarr=None, entries=None):
                 'save_path': entry.get('save_path', ''),
                 'content_path': entry.get('content_path', ''),
                 'size': _int_or_zero(entry.get('size')),
+                'seeding_seconds': _int_or_zero(entry.get('seeding_seconds')),
                 'client': entry.get('client', ''),
             })
         log.info(f"[TORRENT] Matched torrent-client entries count={len(matches)} title={title.get('title')!r}")
@@ -1451,6 +1465,74 @@ def _trigger_cleanuparr_download_cleaner():
         log.warning(f"[REMOVE] Cleanuparr trigger failed HTTP {response.status_code}: {_response_excerpt(response)}")
     response.raise_for_status()
 
+# --- Cleanuparr seed-time protection ---
+# Cleanuparr's Download Cleaner rules include a minimum seed time (in hours)
+# per category. When the user opts in, torrents that have not yet met the
+# largest configured minimum are excluded from torrent-client deletion so
+# Cleanuparr can retire them later, once its own rules are satisfied.
+_cleanuparr_seed_cache_lock = threading.Lock()
+_cleanuparr_seed_cache = {'expires': 0.0, 'result': None}
+CLEANUPARR_SEED_CACHE_TTL = 300
+
+def _collect_min_seed_hours(payload, found):
+    """Recursively collect values for keys that look like a min-seed-time rule."""
+    if isinstance(payload, dict):
+        for key, value in payload.items():
+            normalized = re.sub(r'[^a-z0-9]', '', str(key).lower())
+            if normalized == 'minseedtime':
+                try:
+                    hours = float(value)
+                except (TypeError, ValueError):
+                    continue
+                if hours >= 0:
+                    found.append(hours)
+            else:
+                _collect_min_seed_hours(value, found)
+    elif isinstance(payload, list):
+        for item in payload:
+            _collect_min_seed_hours(item, found)
+
+def _cleanuparr_seed_protection():
+    """Read Cleanuparr's minimum seed time. Returns {available, min_seed_seconds, error}."""
+    if not _cleanuparr_configured():
+        return {'available': False, 'min_seed_seconds': 0, 'error': 'Cleanuparr is not configured'}
+    now = time.time()
+    with _cleanuparr_seed_cache_lock:
+        if _cleanuparr_seed_cache['result'] is not None and _cleanuparr_seed_cache['expires'] > now:
+            return _cleanuparr_seed_cache['result']
+    url = _normalize_url(get_setting('cleanuparr_url'))
+    result = {'available': False, 'min_seed_seconds': 0,
+              'error': 'Could not read seed-time rules from Cleanuparr'}
+    for path in ('/api/configuration/download_cleaner', '/api/configuration'):
+        try:
+            response = requests.get(url + path, headers=_cleanuparr_headers(), timeout=8)
+            if response.status_code >= 400:
+                continue
+            found = []
+            _collect_min_seed_hours(response.json(), found)
+            if found:
+                # Protect against the strictest (longest) configured rule.
+                result = {'available': True,
+                          'min_seed_seconds': int(max(found) * 3600),
+                          'error': ''}
+                break
+        except Exception as exc:
+            log.warning(f"[REMOVE] Cleanuparr config lookup failed on {path}: {type(exc).__name__}")
+    with _cleanuparr_seed_cache_lock:
+        _cleanuparr_seed_cache['result'] = result
+        _cleanuparr_seed_cache['expires'] = time.time() + CLEANUPARR_SEED_CACHE_TTL
+    return result
+
+def _split_seed_protected(matches, min_seed_seconds):
+    """Partition torrent matches into (deletable, still_seeding_protected)."""
+    deletable, protected = [], []
+    for match in matches:
+        if _int_or_zero(match.get('seeding_seconds')) < min_seed_seconds:
+            protected.append(match)
+        else:
+            deletable.append(match)
+    return deletable, protected
+
 def _queue_records_from_response(payload):
     if isinstance(payload, list):
         return payload
@@ -1459,13 +1541,13 @@ def _queue_records_from_response(payload):
         return records if isinstance(records, list) else []
     return []
 
-def _matching_radarr_downloads(records, movie_id):
+def _matching_arr_downloads(records, id_field, arr_id):
     downloads = []
     for record in records:
         if not isinstance(record, dict):
             continue
         try:
-            if int(record.get('movieId', -1)) != movie_id:
+            if int(record.get(id_field, -1)) != arr_id:
                 continue
             downloads.append({
                 'id': int(record['id']),
@@ -1569,7 +1651,7 @@ def _radarr_context(tmdb_id):
             queue_lookup_ok = True
             log.debug(f"[REMOVE] Radarr queue lookup returned records={len(records)} source={source} radarr_id={movie_id}")
             _log_queue_sample(records, source)
-            result['downloads'] = _matching_radarr_downloads(records, movie_id)
+            result['downloads'] = _matching_arr_downloads(records, 'movieId', movie_id)
             log.info(f"[REMOVE] Radarr queue matched downloads={len(result['downloads'])} source={source} radarr_id={movie_id}")
             if result['downloads']:
                 break
@@ -1578,6 +1660,93 @@ def _radarr_context(tmdb_id):
             log.warning(f"[REMOVE] Radarr queue lookup failed source={source}: {last_error}")
     if last_error and not queue_lookup_ok:
         result['queue_error'] = 'Could not look up active Radarr downloads'
+    return result
+
+def _sonarr_find_series(series_list, title):
+    """Match a library title to a Sonarr series: tmdbId first, then title/year."""
+    tmdb_id = str(title.get('tmdb_id') or '')
+    want_title = _match_text(title.get('title'))
+    want_year = str(title.get('year') or '')
+    series = None
+    # Sonarr v4 exposes tmdbId; fall back to a title/year match on v3.
+    if tmdb_id:
+        series = next(
+            (item for item in series_list
+             if str(item.get('tmdbId') or '') == tmdb_id),
+            None,
+        )
+    if series is None:
+        series = next(
+            (item for item in series_list
+             if _match_text(item.get('title')) == want_title
+             and (not want_year or str(item.get('year') or '') == want_year)),
+            None,
+        )
+    return series
+
+def _sonarr_context(title):
+    """Resolve a series and its active queue records for a TV removal."""
+    url = _normalize_url(get_setting('sonarr_url'))
+    key = get_setting('sonarr_api_key')
+    result = {
+        'configured': bool(url and key),
+        'series': None,
+        'downloads': [],
+        'error': '',
+        'queue_error': '',
+    }
+    if not result['configured']:
+        result['error'] = 'Sonarr is not configured'
+        return result
+
+    headers = {'X-Api-Key': key}
+    try:
+        response = requests.get(url + '/api/v3/series', headers=headers, timeout=15)
+        if response.status_code >= 400:
+            log.warning(f"[REMOVE] Sonarr series lookup failed HTTP {response.status_code}: {_response_excerpt(response)}")
+        response.raise_for_status()
+        series_list = response.json()
+        if not isinstance(series_list, list):
+            raise ValueError('Sonarr series response was not a list')
+        series = _sonarr_find_series(series_list, title)
+        if not series:
+            result['error'] = 'Show was not found in Sonarr'
+            return result
+        series_id = int(series['id'])
+        result['series'] = {
+            'id': series_id,
+            'title': str(series.get('title') or ''),
+            'path': str(series.get('path') or ''),
+        }
+        log.info(f"[REMOVE] Sonarr matched sonarr_id={series_id} title={result['series']['title']!r}")
+    except Exception as exc:
+        log.warning(f"[REMOVE] Sonarr series lookup failed: {type(exc).__name__}")
+        result['error'] = 'Could not look up this show in Sonarr'
+        return result
+
+    queue_sources = [
+        ('details', url + '/api/v3/queue/details', {'seriesId': series_id}),
+        ('paged', url + '/api/v3/queue', [('pageSize', 100)]),
+    ]
+    last_error = ''
+    queue_lookup_ok = False
+    for source, queue_url, params in queue_sources:
+        try:
+            response = requests.get(queue_url, headers=headers, params=params, timeout=8)
+            if response.status_code >= 400:
+                log.warning(f"[REMOVE] Sonarr queue lookup failed HTTP {response.status_code} source={source}: {_response_excerpt(response)}")
+            response.raise_for_status()
+            records = _queue_records_from_response(response.json())
+            queue_lookup_ok = True
+            result['downloads'] = _matching_arr_downloads(records, 'seriesId', series_id)
+            log.info(f"[REMOVE] Sonarr queue matched downloads={len(result['downloads'])} source={source} sonarr_id={series_id}")
+            if result['downloads']:
+                break
+        except Exception as exc:
+            last_error = type(exc).__name__
+            log.warning(f"[REMOVE] Sonarr queue lookup failed source={source}: {last_error}")
+    if last_error and not queue_lookup_ok:
+        result['queue_error'] = 'Could not look up active Sonarr downloads'
     return result
 
 def _plex_deletion_available(title):
@@ -1694,24 +1863,7 @@ def _sonarr_file_records(title):
         series_list = response.json()
         if not isinstance(series_list, list):
             raise ValueError('Sonarr series response was not a list')
-        tmdb_id = str(title.get('tmdb_id') or '')
-        want_title = _match_text(title.get('title'))
-        want_year = str(title.get('year') or '')
-        series = None
-        # Sonarr v4 exposes tmdbId; fall back to a title/year match on v3.
-        if tmdb_id:
-            series = next(
-                (item for item in series_list
-                 if str(item.get('tmdbId') or '') == tmdb_id),
-                None,
-            )
-        if series is None:
-            series = next(
-                (item for item in series_list
-                 if _match_text(item.get('title')) == want_title
-                 and (not want_year or str(item.get('year') or '') == want_year)),
-                None,
-            )
+        series = _sonarr_find_series(series_list, title)
         if not series:
             result['error'] = 'Not tracked in Sonarr'
             return result
@@ -1909,29 +2061,54 @@ def api_title_space(title_id):
         },
     })
 
+def _arr_removal_context(title):
+    """Radarr context for movies, Sonarr context for shows, in one shape."""
+    if title['media_type'] == 'movie':
+        radarr = _radarr_context(title.get('tmdb_id'))
+        return 'radarr', {**radarr, 'item': radarr['movie']}
+    sonarr = _sonarr_context(title)
+    return 'sonarr', {**sonarr, 'item': sonarr['series']}
+
+def _arr_match_hint(arr_name, arr):
+    """Movie-shaped dict feeding the torrent matcher's trusted-path checks."""
+    item = arr.get('item')
+    if not item:
+        return None
+    if arr_name == 'radarr':
+        return item
+    return {'title': item.get('title'), 'path': item.get('path'), 'movie_file_path': ''}
+
 @app.route('/api/remove/<int:title_id>/preview')
 def api_remove_preview(title_id):
     title = _removal_title(title_id)
     if not title:
         return jsonify({'ok': False, 'error': 'Title not found'}), 404
-    if title['media_type'] != 'movie':
-        return jsonify({'ok': False, 'error': 'Sonarr removal is not wired yet'}), 400
 
-    radarr = _radarr_context(title.get('tmdb_id'))
-    torrent = _torrent_matches_for_title(title, radarr)
+    arr_name, arr = _arr_removal_context(title)
+    torrent = _torrent_matches_for_title(title, {'movie': _arr_match_hint(arr_name, arr)})
+    seed_protection = _cleanuparr_seed_protection()
+    matches = torrent['matches']
+    if seed_protection['available']:
+        for match in matches:
+            match['seed_protected'] = (
+                _int_or_zero(match.get('seeding_seconds')) < seed_protection['min_seed_seconds']
+            )
     return jsonify({
         'ok': True,
         'title': title['title'],
+        'media_type': title['media_type'],
         'plex_available': _plex_deletion_available(title),
-        'radarr_configured': radarr['configured'],
-        'radarr_movie': radarr['movie'],
-        'downloads': radarr['downloads'],
+        'arr_name': arr_name,
+        'arr_configured': arr['configured'],
+        'arr_item': arr['item'],
+        'arr_error': arr['error'],
+        'queue_error': arr['queue_error'],
+        'downloads': arr['downloads'],
         'cleanuparr_available': _cleanuparr_configured(),
+        'seed_protection': seed_protection,
         'torrent_client_configured': torrent['configured'],
-        'torrent_matches': torrent['matches'],
+        'torrent_matches': matches,
         'torrent_error': torrent['error'],
-        'radarr_error': radarr['error'],
-        'queue_error': radarr['queue_error'],
     })
 
 @app.route('/api/remove/<int:title_id>', methods=['POST'])
@@ -1942,65 +2119,78 @@ def api_remove_title(title_id):
     if data.get('confirmed') is not True:
         return jsonify({'ok': False, 'error': 'Deletion confirmation is required'}), 400
 
-    remove_radarr = data.get('remove_radarr') is True
-    delete_radarr_files = data.get('delete_radarr_files') is True
+    remove_arr = any(data.get(key) is True for key in ('remove_arr', 'remove_radarr', 'remove_sonarr'))
+    delete_arr_files = any(data.get(key) is True for key in ('delete_arr_files', 'delete_radarr_files', 'delete_sonarr_files'))
     delete_plex = data.get('delete_plex') is True
     remove_downloads = data.get('remove_downloads') is True
     trigger_cleanuparr = data.get('trigger_cleanuparr') is True
     delete_torrent_matches = data.get('delete_torrent_matches') is True
-    if delete_radarr_files:
-        remove_radarr = True
-    if not any((remove_radarr, delete_plex, remove_downloads, delete_torrent_matches)):
+    protect_seeding = data.get('protect_seeding') is True
+    if delete_arr_files:
+        remove_arr = True
+    if not any((remove_arr, delete_plex, remove_downloads, delete_torrent_matches)):
         return jsonify({'ok': False, 'error': 'Select at least one removal action'}), 400
 
     title = _removal_title(title_id)
     if not title:
         return jsonify({'ok': False, 'error': 'Title not found'}), 404
-    if title['media_type'] != 'movie':
-        return jsonify({'ok': False, 'error': 'Sonarr removal is not wired yet'}), 400
+    media_label = 'movie' if title['media_type'] == 'movie' else 'show'
 
     log.info(
-        f"[REMOVE] Confirmed title_id={title_id} title={title['title']!r} "
-        f"remove_radarr={remove_radarr} delete_radarr_files={delete_radarr_files} delete_plex={delete_plex} "
+        f"[REMOVE] Confirmed title_id={title_id} title={title['title']!r} media_type={title['media_type']} "
+        f"remove_arr={remove_arr} delete_arr_files={delete_arr_files} delete_plex={delete_plex} "
         f"remove_downloads={remove_downloads} delete_torrent_matches={delete_torrent_matches} "
-        f"trigger_cleanuparr={trigger_cleanuparr}"
+        f"trigger_cleanuparr={trigger_cleanuparr} protect_seeding={protect_seeding}"
     )
 
-    radarr = None
-    if remove_radarr or remove_downloads:
-        radarr = _radarr_context(title.get('tmdb_id'))
-        if not radarr['movie']:
-            return jsonify({'ok': False, 'error': radarr['error'] or 'Movie was not found in Radarr'}), 400
-        if remove_downloads and radarr['queue_error']:
-            return jsonify({'ok': False, 'error': radarr['queue_error']}), 502
-        if remove_downloads and not radarr['downloads']:
-            return jsonify({'ok': False, 'error': 'No active Radarr downloads were found for this movie'}), 400
+    arr_name, arr = None, None
+    if remove_arr or remove_downloads:
+        arr_name, arr = _arr_removal_context(title)
+        arr_label = arr_name.capitalize()
+        if not arr['item']:
+            return jsonify({'ok': False, 'error': arr['error'] or f'Title was not found in {arr_label}'}), 400
+        if remove_downloads and arr['queue_error']:
+            return jsonify({'ok': False, 'error': arr['queue_error']}), 502
+        if remove_downloads and not arr['downloads']:
+            return jsonify({'ok': False, 'error': f'No active {arr_label} downloads were found for this {media_label}'}), 400
     if delete_plex and not _plex_deletion_available(title):
         return jsonify({'ok': False, 'error': 'Plex deletion is unavailable for this title'}), 400
     if trigger_cleanuparr and not _cleanuparr_configured():
         return jsonify({'ok': False, 'error': 'Cleanuparr is not configured'}), 400
+    seed_protection = None
+    if protect_seeding and delete_torrent_matches:
+        # Fail safe: if the seed rules cannot be read, refuse rather than
+        # deleting torrents the user asked to protect.
+        seed_protection = _cleanuparr_seed_protection()
+        if not seed_protection['available']:
+            return jsonify({'ok': False, 'error': seed_protection['error'] or 'Cleanuparr seed rules are unavailable'}), 400
     torrent = {'matches': []}
+    deletable_matches, protected_matches = [], []
     if delete_torrent_matches:
-        torrent = _torrent_matches_for_title(title, radarr)
+        torrent = _torrent_matches_for_title(title, {'movie': _arr_match_hint(arr_name, arr)} if arr else None)
         if torrent['error']:
             return jsonify({'ok': False, 'error': torrent['error']}), 502
         if not torrent['matches']:
             return jsonify({'ok': False, 'error': 'No matching torrent-client entries were found'}), 400
+        deletable_matches = torrent['matches']
+        if seed_protection:
+            deletable_matches, protected_matches = _split_seed_protected(
+                torrent['matches'], seed_protection['min_seed_seconds'])
 
     completed = []
-    radarr_url = _normalize_url(get_setting('radarr_url'))
-    radarr_headers = {'X-Api-Key': get_setting('radarr_api_key')}
 
     try:
         if remove_downloads:
-            for download in radarr['downloads']:
+            arr_url = _normalize_url(get_setting(f'{arr_name}_url'))
+            arr_headers = {'X-Api-Key': get_setting(f'{arr_name}_api_key')}
+            for download in arr['downloads']:
                 log.info(
-                    f"[REMOVE] Radarr queue delete start queue_id={download['id']} "
-                    f"radarr_id={radarr['movie']['id']} removeFromClient=true"
+                    f"[REMOVE] {arr_name.capitalize()} queue delete start queue_id={download['id']} "
+                    f"arr_id={arr['item']['id']} removeFromClient=true"
                 )
                 response = requests.delete(
-                    f"{radarr_url}/api/v3/queue/{download['id']}",
-                    headers=radarr_headers,
+                    f"{arr_url}/api/v3/queue/{download['id']}",
+                    headers=arr_headers,
                     params={
                         'removeFromClient': True,
                         'blocklist': False,
@@ -2009,11 +2199,11 @@ def api_remove_title(title_id):
                     },
                     timeout=8,
                 )
-                log.info(f"[REMOVE] Radarr queue delete HTTP {response.status_code} queue_id={download['id']}")
+                log.info(f"[REMOVE] {arr_name.capitalize()} queue delete HTTP {response.status_code} queue_id={download['id']}")
                 if response.status_code >= 400:
-                    log.warning(f"[REMOVE] Radarr queue delete failed HTTP {response.status_code}: {_response_excerpt(response)}")
+                    log.warning(f"[REMOVE] Queue delete failed HTTP {response.status_code}: {_response_excerpt(response)}")
                 response.raise_for_status()
-            count = len(radarr['downloads'])
+            count = len(arr['downloads'])
             completed.append(f"Removed {count} active download{'s' if count != 1 else ''} from the download client")
 
         if delete_plex:
@@ -2035,28 +2225,41 @@ def api_remove_title(title_id):
                 completed.append('Removed stale Plex cache entry; Plex item was already absent')
             else:
                 response.raise_for_status()
-                completed.append('Deleted the movie from Plex and disk')
+                completed.append(f'Deleted the {media_label} from Plex and disk')
             _delete_local_title(title_id)
 
-        if remove_radarr:
-            log.info(f"[REMOVE] Radarr movie delete start radarr_id={radarr['movie']['id']} deleteFiles={str(delete_radarr_files).lower()}")
-            response = requests.delete(
-                f"{radarr_url}/api/v3/movie/{radarr['movie']['id']}",
-                headers=radarr_headers,
-                params={'deleteFiles': delete_radarr_files, 'addImportExclusion': False},
-                timeout=8,
-            )
-            log.info(f"[REMOVE] Radarr movie delete HTTP {response.status_code} radarr_id={radarr['movie']['id']}")
+        if remove_arr:
+            arr_url = _normalize_url(get_setting(f'{arr_name}_url'))
+            arr_headers = {'X-Api-Key': get_setting(f'{arr_name}_api_key')}
+            arr_label = arr_name.capitalize()
+            if arr_name == 'radarr':
+                delete_url = f"{arr_url}/api/v3/movie/{arr['item']['id']}"
+                params = {'deleteFiles': delete_arr_files, 'addImportExclusion': False}
+            else:
+                delete_url = f"{arr_url}/api/v3/series/{arr['item']['id']}"
+                params = {'deleteFiles': delete_arr_files, 'addImportListExclusion': False}
+            log.info(f"[REMOVE] {arr_label} delete start arr_id={arr['item']['id']} deleteFiles={str(delete_arr_files).lower()}")
+            response = requests.delete(delete_url, headers=arr_headers, params=params, timeout=15)
+            log.info(f"[REMOVE] {arr_label} delete HTTP {response.status_code} arr_id={arr['item']['id']}")
             if response.status_code >= 400:
-                log.warning(f"[REMOVE] Radarr movie delete failed HTTP {response.status_code}: {_response_excerpt(response)}")
+                log.warning(f"[REMOVE] {arr_label} delete failed HTTP {response.status_code}: {_response_excerpt(response)}")
             response.raise_for_status()
-            completed.append('Removed the movie from Radarr and deleted Radarr-managed files' if delete_radarr_files else 'Removed the movie from Radarr')
+            completed.append(
+                f'Removed the {media_label} from {arr_label} and deleted {arr_label}-managed files'
+                if delete_arr_files else f'Removed the {media_label} from {arr_label}'
+            )
 
         if delete_torrent_matches:
-            match_ids = [match['id'] for match in torrent['matches']]
-            _delete_torrent_client_entries(match_ids, delete_files=True)
-            count = len(match_ids)
-            completed.append(f"Deleted {count} matched torrent-client entr{'y' if count == 1 else 'ies'} with data")
+            if deletable_matches:
+                match_ids = [match['id'] for match in deletable_matches]
+                _delete_torrent_client_entries(match_ids, delete_files=True)
+                count = len(match_ids)
+                completed.append(f"Deleted {count} matched torrent-client entr{'y' if count == 1 else 'ies'} with data")
+            if protected_matches:
+                count = len(protected_matches)
+                completed.append(
+                    f"Kept {count} torrent{'s' if count != 1 else ''} still under Cleanuparr's minimum seed time"
+                )
 
         if trigger_cleanuparr:
             _trigger_cleanuparr_download_cleaner()

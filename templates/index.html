@@ -10,33 +10,38 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&display=swap" rel="stylesheet">
 <style>
   :root {
-    /* Abyss surfaces — deep, blue-tinted, flat */
-    --bg:       #0a0e14;
-    --bg-1:     #0e141c;
-    --bg-2:     #131a24;
-    --bg-3:     #1a2330;
-    --border:      #24303f;
-    --border-soft: #1a232f;
+    /* Abyss surfaces — deep, blue-tinted, flat. Softened from the original
+       palette so the dark theme reads calmer / lower-contrast. */
+    --bg:       #10151d;
+    --bg-1:     #141b24;
+    --bg-2:     #19212c;
+    --bg-3:     #202a37;
+    --border:      #2a3644;
+    --border-soft: #212b37;
 
     /* Text */
-    --text:   #e8eef5;
-    --text-2: #9caebf;
-    --text-3: #5d6e80;
+    --text:   #d9e0e8;
+    --text-2: #96a5b5;
+    --text-3: #647383;
 
     /* Phosphor accent + signal colors */
-    --accent:        #34e5a3;
-    --accent-strong: #56ecb5;
-    --accent-soft:   rgba(52,229,163,0.11);
-    --accent-border: rgba(52,229,163,0.32);
-    --on-accent:     #06231a;
-    --amber:        #e3ac52;
-    --amber-soft:   rgba(227,172,82,0.12);
-    --amber-border: rgba(227,172,82,0.3);
-    --danger:        #e57368;
-    --danger-soft:   rgba(229,115,104,0.1);
-    --danger-border: rgba(229,115,104,0.3);
-    --info:   #58b7d6;
-    --violet: #a49bd8;
+    --accent:        #37d29c;
+    --accent-strong: #57dfae;
+    --accent-soft:   rgba(55,210,156,0.11);
+    --accent-border: rgba(55,210,156,0.30);
+    --on-accent:     #07211a;
+    --amber:        #d9a955;
+    --amber-soft:   rgba(217,169,85,0.12);
+    --amber-border: rgba(217,169,85,0.3);
+    --danger:        #db776d;
+    --danger-soft:   rgba(219,119,109,0.1);
+    --danger-border: rgba(219,119,109,0.3);
+    --info:   #5cb0cc;
+    --violet: #9f98cf;
+
+    /* Theme-dependent surfaces */
+    --glass:   rgba(16,21,29,0.85);
+    --overlay: rgba(6,9,14,0.66);
 
     --sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     --mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
@@ -45,6 +50,37 @@
     --radius:   8px;
     --radius-l: 12px;
     --shadow-overlay: 0 24px 64px rgba(0,0,0,0.5), 0 4px 16px rgba(0,0,0,0.3);
+  }
+
+  :root[data-theme="light"] {
+    --bg:       #f2f4f6;
+    --bg-1:     #fbfcfd;
+    --bg-2:     #eceff2;
+    --bg-3:     #e1e6eb;
+    --border:      #ccd4dc;
+    --border-soft: #dde3e9;
+
+    --text:   #2a3541;
+    --text-2: #5d6c7b;
+    --text-3: #909dab;
+
+    --accent:        #0f9e71;
+    --accent-strong: #0c8760;
+    --accent-soft:   rgba(15,158,113,0.10);
+    --accent-border: rgba(15,158,113,0.35);
+    --on-accent:     #ffffff;
+    --amber:        #a97a24;
+    --amber-soft:   rgba(169,122,36,0.10);
+    --amber-border: rgba(169,122,36,0.32);
+    --danger:        #c25248;
+    --danger-soft:   rgba(194,82,72,0.08);
+    --danger-border: rgba(194,82,72,0.32);
+    --info:   #2b7c9d;
+    --violet: #7466b8;
+
+    --glass:   rgba(242,244,246,0.85);
+    --overlay: rgba(34,43,54,0.45);
+    --shadow-overlay: 0 24px 64px rgba(35,45,56,0.22), 0 4px 16px rgba(35,45,56,0.12);
   }
 
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -192,7 +228,7 @@
     display: flex; align-items: center; gap: 14px;
     padding: 0 24px;
     border-bottom: 1px solid var(--border-soft);
-    background: rgba(10,14,20,0.85);
+    background: var(--glass);
     backdrop-filter: blur(10px);
     position: sticky; top: 0; z-index: 18;
   }
@@ -248,6 +284,15 @@
   .view-toggle button:hover { color: var(--text-2); }
   .view-toggle button.on { background: var(--bg-3); color: var(--text); }
 
+  .theme-btn {
+    width: 34px; height: 30px; border-radius: var(--radius-s); cursor: pointer;
+    background: var(--bg-2); border: 1px solid var(--border-soft);
+    color: var(--text-2);
+    display: flex; align-items: center; justify-content: center;
+    transition: color 0.15s ease, border-color 0.15s ease;
+  }
+  .theme-btn:hover { color: var(--text); border-color: var(--border); }
+
   .scroll { flex: 1; overflow-y: auto; overflow-x: hidden; }
   .scroll::-webkit-scrollbar { width: 10px; }
   .scroll::-webkit-scrollbar-track { background: var(--bg); }
@@ -291,11 +336,21 @@
   .sparkbar span.lit:hover { opacity: 1; }
 
   /* ──── Filters ──── */
-  .deck {
-    display: flex; align-items: center; gap: 10px;
-    margin-bottom: 20px; flex-wrap: wrap;
+  .deck { margin-bottom: 20px; }
+  .deck-head {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    margin-bottom: 8px;
   }
-  .svc-tools { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .deck-toggle {
+    display: flex; align-items: center; gap: 8px;
+    border: none; background: transparent; cursor: pointer; padding: 4px 0;
+    color: var(--text-2); font-family: var(--sans);
+  }
+  .deck-toggle svg { transition: transform 0.15s ease; color: var(--text-3); }
+  .deck.collapsed .deck-toggle svg { transform: rotate(-90deg); }
+  .deck-summary { font-size: 12px; color: var(--text-2); }
+  .deck-summary b { color: var(--accent-strong); font-weight: 600; }
+  .svc-tools { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-left: auto; }
   .svc-tool {
     height: 28px; padding: 0 10px; border-radius: var(--radius-s);
     background: var(--bg-2); border: 1px solid var(--border-soft);
@@ -305,26 +360,45 @@
   select.svc-tool { outline: none; }
   button.svc-tool:hover, select.svc-tool:hover { border-color: var(--border); color: var(--text); }
   .svc-tool:disabled { opacity: 0.45; cursor: default; }
-  .svc-chips { display: flex; gap: 6px; flex-wrap: wrap; flex: 1; }
-  .chip {
-    font-family: var(--sans); font-size: 12px; font-weight: 500;
-    padding: 5px 12px; border-radius: 999px; cursor: pointer;
-    background: var(--bg-2); border: 1px solid var(--border-soft);
-    color: var(--text-2); white-space: nowrap;
-    transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
-    display: flex; align-items: center; gap: 6px;
+
+  /* Streaming services as a vertical list menu */
+  .svc-list {
+    display: flex; flex-direction: column; gap: 1px;
+    max-height: 264px; overflow-y: auto;
+    background: var(--bg-1); border: 1px solid var(--border-soft);
+    border-radius: var(--radius); padding: 5px;
   }
-  .chip[draggable="true"] { cursor: grab; }
-  .chip.dragging { opacity: 0.45; }
-  .chip:hover { border-color: var(--border); color: var(--text); }
-  .chip.on {
-    background: var(--accent-soft); border-color: var(--accent-border);
-    color: var(--accent-strong);
+  .deck.collapsed .svc-list { display: none; }
+  .svc-list::-webkit-scrollbar { width: 6px; }
+  .svc-list::-webkit-scrollbar-thumb { background: var(--bg-3); border-radius: 3px; }
+  .svc-row {
+    display: flex; align-items: center; gap: 10px;
+    width: 100%; padding: 6px 10px;
+    border: none; border-radius: var(--radius-s); cursor: pointer;
+    background: transparent; color: var(--text-2); text-align: left;
+    font-family: var(--sans); font-size: 12.5px; font-weight: 500;
+    transition: background 0.12s ease, color 0.12s ease;
   }
-  .chip .cnt { font-size: 11px; font-variant-numeric: tabular-nums; opacity: 0.75; }
-  .chip-all.on { background: var(--bg-3); border-color: var(--border); color: var(--text); }
-  .chip-more { border-style: dashed; color: var(--text-3); background: transparent; }
-  .chip-more:hover { color: var(--text-2); }
+  .svc-row:hover { background: var(--bg-2); color: var(--text); }
+  .svc-row.on { background: var(--accent-soft); color: var(--accent-strong); }
+  .svc-row[draggable="true"] { cursor: grab; }
+  .svc-row.dragging { opacity: 0.45; }
+  .svc-row-mark {
+    width: 14px; height: 14px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    border: 1px solid var(--border); border-radius: 4px;
+    color: transparent;
+  }
+  .svc-row.on .svc-row-mark { border-color: var(--accent-border); background: var(--accent-soft); color: var(--accent-strong); }
+  .svc-row-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .svc-row-cnt { font-size: 11px; font-variant-numeric: tabular-nums; color: var(--text-3); }
+  .svc-row.on .svc-row-cnt { color: var(--accent-strong); opacity: 0.8; }
+  .svc-row-more { color: var(--text-3); font-size: 12px; justify-content: center; }
+  .svc-row-more:hover { color: var(--text-2); }
+
+  /* ──── Stats page ──── */
+  .page { display: none; }
+  .page.on { display: block; }
 
   /* ──── Poster grid ──── */
   .grid {
@@ -390,13 +464,15 @@
     padding: 32px 12px 12px;
     background: linear-gradient(180deg, transparent, rgba(10,14,20,0.85) 55%, rgba(10,14,20,0.97));
   }
+  /* Poster overlays sit on artwork, so they keep fixed dark-scrim colors in
+     both themes. */
   .card-title {
-    font-size: 13px; font-weight: 600; color: var(--text);
+    font-size: 13px; font-weight: 600; color: #e9eff5;
     line-height: 1.3;
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
     overflow: hidden;
   }
-  .card-year { font-size: 11px; color: var(--text-2); margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .card-year { font-size: 11px; color: #9fb0c0; margin-top: 2px; font-variant-numeric: tabular-nums; }
 
   .svc-dots { display: flex; gap: 4px; margin-top: 7px; flex-wrap: wrap; }
   .svc-dot {
@@ -405,6 +481,9 @@
     background: var(--accent-soft); color: var(--accent-strong);
   }
   .svc-dot.partial { background: var(--amber-soft); color: var(--amber); }
+  .scrim .svc-dot { background: rgba(52,229,163,0.14); color: #5fe2ae; }
+  .scrim .svc-dot.partial { background: rgba(227,172,82,0.16); color: #e5b568; }
+  .scrim .card-size { color: #5fe2ae; }
 
   /* ──── List view ──── */
   .listview { display: none; flex-direction: column; gap: 2px; }
@@ -480,7 +559,7 @@
   /* ──── Modal ──── */
   .modal-bg {
     display: none; position: fixed; inset: 0; z-index: 90;
-    background: rgba(4,7,11,0.72); backdrop-filter: blur(4px);
+    background: var(--overlay); backdrop-filter: blur(4px);
     align-items: center; justify-content: center; padding: 24px;
   }
   .modal-bg.on { display: flex; animation: fade-in 0.15s ease; }
@@ -616,6 +695,19 @@
   }
   .remove-option:has(input:disabled) { opacity: 0.45; cursor: default; }
   .remove-option input { margin-top: 2px; accent-color: var(--danger); }
+  .remove-option.protect input { accent-color: var(--accent); }
+  .remove-adv-toggle {
+    display: flex; align-items: center; gap: 7px;
+    margin-top: 16px; padding: 0;
+    border: none; background: transparent; cursor: pointer;
+    color: var(--text-3); font-family: var(--mono);
+    font-size: 10px; font-weight: 500; letter-spacing: 0.09em; text-transform: uppercase;
+  }
+  .remove-adv-toggle:hover { color: var(--text-2); }
+  .remove-adv-toggle svg { transition: transform 0.15s ease; }
+  .remove-adv-toggle.open svg { transform: rotate(90deg); }
+  .remove-advanced { display: none; }
+  .remove-advanced.open { display: block; }
   .remove-option-title { color: var(--text); font-size: 13px; font-weight: 550; }
   .remove-option-sub { margin-top: 2px; color: var(--text-2); font-size: 12px; line-height: 1.45; }
 
@@ -636,7 +728,7 @@
   /* ──── Settings drawer ──── */
   .drawer-bg {
     display: none; position: fixed; inset: 0; z-index: 80;
-    background: rgba(4,7,11,0.6); backdrop-filter: blur(3px);
+    background: var(--overlay); backdrop-filter: blur(3px);
   }
   .drawer-bg.on { display: block; animation: fade-in 0.15s ease; }
   .drawer {
@@ -914,6 +1006,12 @@
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="6.5"/><path d="M5.5 5.5l5 5M10.5 5.5l-5 5"/></svg>
         <span>Plex Only</span><span class="tally" id="t-orphan">—</span>
       </button>
+
+      <div class="rail-heading">Insights</div>
+      <button class="nav-btn" id="navStats" onclick="setPage('stats')">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2.5 13.5v-4M6.5 13.5v-8M10.5 13.5v-5.5M14 13.5V3"/></svg>
+        <span>Stats</span>
+      </button>
     </div>
 
     <div class="rail-foot">
@@ -942,6 +1040,7 @@
       </div>
       <div class="cmdbar-right">
         <div class="status-chip" id="statusChip"><span class="dot"></span><span id="statusText">Idle</span></div>
+        <button class="theme-btn" id="themeToggle" onclick="cycleTheme()" title="Theme"></button>
         <div class="view-toggle">
           <button id="viewGrid" class="on" onclick="setView('grid')" title="Grid view">
             <svg width="15" height="15" viewBox="0 0 15 15" fill="currentColor"><rect x="1" y="1" width="5.5" height="5.5" rx="1"/><rect x="8.5" y="1" width="5.5" height="5.5" rx="1"/><rect x="1" y="8.5" width="5.5" height="5.5" rx="1"/><rect x="8.5" y="8.5" width="5.5" height="5.5" rx="1"/></svg>
@@ -956,7 +1055,8 @@
     <div class="scroll">
       <div class="canvas">
 
-        <!-- Dashboard metrics -->
+        <!-- Stats page (hidden behind the Stats nav item) -->
+        <div class="page" id="statsPage">
         <div class="dash-grid">
           <div class="metric" id="m-total-card">
             <div class="metric-k"><svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><rect x="0.5" y="0.5" width="5" height="5" rx="1"/><rect x="6.5" y="0.5" width="5" height="5" rx="1"/><rect x="0.5" y="6.5" width="5" height="5" rx="1"/><rect x="6.5" y="6.5" width="5" height="5" rx="1"/></svg> <span id="m-total-label">Library Size</span></div>
@@ -979,29 +1079,41 @@
             <div class="sparkbar" id="sparkbar"></div>
           </div>
         </div>
+        </div><!-- /statsPage -->
+
+        <!-- Library page -->
+        <div class="page on" id="libraryPage">
 
         <!-- Filter deck -->
-        <div class="deck">
-          <span class="deck-label">Services</span>
-          <div class="svc-tools">
-            <select class="svc-tool" id="svcSort" onchange="setServiceSort(this.value)" title="Sort services">
-              <option value="manual">Manual</option>
-              <option value="name">Name</option>
-              <option value="overlap">Overlap Count</option>
-            </select>
-            <select class="svc-tool" id="svcListSelect" onchange="applyServiceList(this.value)" title="Apply saved service list">
-              <option value="">Saved Lists</option>
-            </select>
-            <button class="svc-tool" type="button" onclick="saveServiceList()">Save List</button>
-            <button class="svc-tool" type="button" id="svcDeleteList" onclick="deleteServiceList()" disabled>Delete List</button>
+        <div class="deck" id="svcDeck">
+          <div class="deck-head">
+            <button class="deck-toggle" type="button" onclick="toggleServicePanel()">
+              <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4.5L6 8l3.5-3.5"/></svg>
+              <span class="deck-label">Services</span>
+              <span class="deck-summary" id="svcSummary"></span>
+            </button>
+            <div class="svc-tools">
+              <select class="svc-tool" id="svcSort" onchange="setServiceSort(this.value)" title="Sort services">
+                <option value="manual">Manual</option>
+                <option value="name">Name</option>
+                <option value="overlap">Overlap Count</option>
+              </select>
+              <select class="svc-tool" id="svcListSelect" onchange="applyServiceList(this.value)" title="Apply saved service list">
+                <option value="">Saved Lists</option>
+              </select>
+              <button class="svc-tool" type="button" onclick="saveServiceList()">Save List</button>
+              <button class="svc-tool" type="button" id="svcDeleteList" onclick="deleteServiceList()" disabled>Delete List</button>
+            </div>
           </div>
-          <div class="svc-chips" id="svcChips"></div>
+          <div class="svc-list" id="svcList"></div>
         </div>
 
         <!-- Poster grid -->
         <div class="grid" id="grid"></div>
         <!-- List view -->
         <div class="listview" id="listview"></div>
+
+        </div><!-- /libraryPage -->
 
       </div>
     </div>
@@ -1421,6 +1533,8 @@ const STORAGE_KEYS = {
   serviceSort: 'submarine.serviceSort',
   serviceLists: 'submarine.serviceLists',
   authToken: 'submarine.authToken',
+  theme: 'submarine.theme',
+  servicePanel: 'submarine.servicePanel',
 };
 const SERVICE_COLORS = {
   'Netflix': '#E50914',
@@ -1513,6 +1627,36 @@ function saveStorage(key, value) {
     localStorage.setItem(key, value);
   } catch {}
 }
+// ════ THEME ════
+// Auto mode follows the OS appearance (macOS light/dark, including the
+// scheduled auto switch) via prefers-color-scheme; Light/Dark pin it.
+const THEME_MODES = ['auto', 'light', 'dark'];
+const THEME_ICONS = {
+  auto: '<svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7.5" cy="7.5" r="5.5"/><path d="M7.5 2a5.5 5.5 0 0 1 0 11z" fill="currentColor" stroke="none"/></svg>',
+  light: '<svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="7.5" cy="7.5" r="3.2"/><path d="M7.5 1v1.6M7.5 12.4V14M1 7.5h1.6M12.4 7.5H14M3 3l1.1 1.1M10.9 10.9L12 12M12 3l-1.1 1.1M4.1 10.9L3 12"/></svg>',
+  dark: '<svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M12.5 9.5A5.5 5.5 0 0 1 5.5 2.5a5.5 5.5 0 1 0 7 7z"/></svg>',
+};
+let themeMode = loadStorage(STORAGE_KEYS.theme, 'auto');
+if (!THEME_MODES.includes(themeMode)) themeMode = 'auto';
+const themeMedia = window.matchMedia('(prefers-color-scheme: light)');
+function applyTheme() {
+  const resolved = themeMode === 'auto' ? (themeMedia.matches ? 'light' : 'dark') : themeMode;
+  document.documentElement.dataset.theme = resolved;
+  const btn = $('themeToggle');
+  if (btn) {
+    btn.innerHTML = THEME_ICONS[themeMode];
+    const label = themeMode === 'auto' ? `Auto (following system: ${resolved})` : themeMode === 'light' ? 'Light' : 'Dark';
+    btn.title = `Theme: ${label} — click to change`;
+  }
+}
+function cycleTheme() {
+  themeMode = THEME_MODES[(THEME_MODES.indexOf(themeMode) + 1) % THEME_MODES.length];
+  saveStorage(STORAGE_KEYS.theme, themeMode);
+  applyTheme();
+}
+themeMedia.addEventListener('change', () => { if (themeMode === 'auto') applyTheme(); });
+applyTheme();
+
 let serviceOrder = loadJSON(STORAGE_KEYS.serviceOrder, SERVICES);
 let serviceSort = loadStorage(STORAGE_KEYS.serviceSort, 'manual');
 let serviceLists = loadJSON(STORAGE_KEYS.serviceLists, {});
@@ -1604,31 +1748,54 @@ function renderServiceListSelect() {
   if (deleteBtn) deleteBtn.disabled = !activeServiceList || !serviceLists[activeServiceList];
 }
 let showAllServices = false;
+let servicePanelOpen = loadStorage(STORAGE_KEYS.servicePanel, 'open') !== 'closed';
+function toggleServicePanel() {
+  servicePanelOpen = !servicePanelOpen;
+  saveStorage(STORAGE_KEYS.servicePanel, servicePanelOpen ? 'open' : 'closed');
+  const deck = $('svcDeck');
+  if (deck) deck.classList.toggle('collapsed', !servicePanelOpen);
+}
+function serviceSummaryHTML() {
+  if (!selectedSvcs.size) return 'All services';
+  const names = [...selectedSvcs];
+  const shown = names.slice(0, 3).map(esc).join(', ');
+  return `<b>${selectedSvcs.size}</b> selected · ${shown}${names.length > 3 ? ', …' : ''}`;
+}
 function renderServiceChips() {
-  const deck = $('svcChips');
-  if (!deck) return;
+  const list = $('svcList');
+  if (!list) return;
+  const deck = $('svcDeck');
+  if (deck) deck.classList.toggle('collapsed', !servicePanelOpen);
+  const summary = $('svcSummary');
+  if (summary) summary.innerHTML = serviceSummaryHTML();
   const isManual = serviceSort === 'manual';
   const ordered = orderedServices();
   // Only surface services with overlap (or active filters); park the rest behind a toggle
   const relevant = ordered.filter(s => (serviceCounts[s] || 0) > 0 || selectedSvcs.has(s));
   const collapsible = relevant.length > 0 && relevant.length < ordered.length;
   const visible = (showAllServices || !collapsible) ? ordered : relevant;
-  const chips = visible.map(s => {
+  const check = '<svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 5.5L4 8l4.5-6"/></svg>';
+  const rows = visible.map(s => {
     const count = serviceCounts[s] || '';
     const active = selectedSvcs.has(s);
-    return `<button class="chip ${active ? 'on' : ''}" type="button" data-svc="${esc(s)}" ${isManual ? 'draggable="true"' : ''} title="${esc(s)}">
-      ${esc(s)} <span class="cnt">${count}</span>
+    return `<button class="svc-row ${active ? 'on' : ''}" type="button" data-svc="${esc(s)}" ${isManual ? 'draggable="true"' : ''} title="${esc(s)}">
+      <span class="svc-row-mark">${check}</span>
+      <span class="svc-row-name">${esc(s)}</span>
+      <span class="svc-row-cnt">${count}</span>
     </button>`;
   }).join('');
-  const moreChip = collapsible
-    ? `<button class="chip chip-more" type="button" id="chipMore">${showAllServices ? 'Show fewer' : `+${ordered.length - relevant.length} more`}</button>`
+  const moreRow = collapsible
+    ? `<button class="svc-row svc-row-more" type="button" id="svcMore">${showAllServices ? 'Show fewer' : `Show ${ordered.length - relevant.length} more without overlap`}</button>`
     : '';
-  deck.innerHTML = `<button class="chip chip-all ${selectedSvcs.size === 0 ? 'on' : ''}" type="button" id="chipAll">All Services</button>${chips}${moreChip}`;
-  const allBtn = $('chipAll');
+  list.innerHTML = `<button class="svc-row ${selectedSvcs.size === 0 ? 'on' : ''}" type="button" id="svcAll">
+      <span class="svc-row-mark">${check}</span>
+      <span class="svc-row-name">All Services</span>
+    </button>${rows}${moreRow}`;
+  const allBtn = $('svcAll');
   if (allBtn) allBtn.addEventListener('click', clearSvc);
-  const moreBtn = $('chipMore');
+  const moreBtn = $('svcMore');
   if (moreBtn) moreBtn.addEventListener('click', () => { showAllServices = !showAllServices; renderServiceChips(); });
-  deck.querySelectorAll('[data-svc]').forEach(btn => {
+  list.querySelectorAll('[data-svc]').forEach(btn => {
     btn.addEventListener('click', () => toggleSvc(btn.dataset.svc));
     if (!isManual) return;
     btn.addEventListener('dragstart', onServiceDragStart);
@@ -1995,17 +2162,13 @@ document.addEventListener('keydown', e => { if (e.key==='Escape') closeModal(); 
 async function handleRemove(id) {
   const t = allTitles.find(x => x.id === id);
   if (!t) return;
-  if (t.type !== 'movie') {
-    toast('Sonarr removal is not wired yet');
-    closeModal();
-    return;
-  }
+  const app = t.type === 'movie' ? 'Radarr' : 'Sonarr';
 
   $('modal').innerHTML = `
     <button class="modal-close" onclick="closeModal()"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M2 2l10 10M12 2L2 12"/></svg></button>
     <div class="remove-confirm">
       <div class="modal-title">Preparing removal</div>
-      <div class="remove-status">Checking Radarr and Plex for ${esc(t.title)}...</div>
+      <div class="remove-status">Checking ${app} and Plex for ${esc(t.title)}...</div>
     </div>`;
   $('modalBg').classList.add('on');
 
@@ -2020,7 +2183,16 @@ async function handleRemove(id) {
   }
 }
 
-let removalRadarrTracked = false;
+let removalArrTracked = false;
+let removalArrLabel = 'Radarr';
+let removalMediaLabel = 'movie';
+
+function arrLabelOf(preview) { return preview.arr_name === 'sonarr' ? 'Sonarr' : 'Radarr'; }
+
+function formatSeedHours(seconds) {
+  const hours = (seconds || 0) / 3600;
+  return `${hours >= 10 ? Math.round(hours) : Math.round(hours * 10) / 10}h`;
+}
 
 function removalSpaceLine(ids) {
   let total = 0, measured = 0;
@@ -2036,31 +2208,132 @@ function removalSpaceLine(ids) {
 function updateRemovalCaution() {
   const caution = $('removeCaution');
   if (!caution) return;
-  const removeRadarr = $('rm-radarr');
+  const removeArr = $('rm-arr');
   const deletingFiles = ($('rm-plex') && $('rm-plex').checked) || ($('rm-torrents') && $('rm-torrents').checked);
-  const orphanRisk = removalRadarrTracked && deletingFiles && removeRadarr && !removeRadarr.checked;
+  const orphanRisk = removalArrTracked && deletingFiles && removeArr && !removeArr.checked;
   caution.style.display = orphanRisk ? 'block' : 'none';
   caution.textContent = orphanRisk
-    ? 'Radarr will keep tracking this movie after its files are deleted and may automatically download it again. Check "Remove from Radarr" to prevent a re-download.'
+    ? `${removalArrLabel} will keep tracking this ${removalMediaLabel} after its files are deleted and may automatically download it again. Check "Remove from ${removalArrLabel}" to prevent a re-download.`
     : '';
 }
 
+function toggleRemovalAdvanced() {
+  const toggle = $('removeAdvToggle');
+  const panel = $('removeAdvanced');
+  if (!toggle || !panel) return;
+  toggle.classList.toggle('open');
+  panel.classList.toggle('open');
+}
+
+function seedProtectionOptionHTML(seed, torrentCount, protectedCount) {
+  const available = !!(seed && seed.available);
+  const enabled = available && torrentCount > 0;
+  let sub;
+  if (available) {
+    sub = `Cleanuparr's minimum seed time is ${formatSeedHours(seed.min_seed_seconds)}. `
+      + (torrentCount > 0
+        ? `${protectedCount} of ${torrentCount} matched torrent${torrentCount === 1 ? '' : 's'} ${protectedCount === 1 ? 'is' : 'are'} still under it and will be kept seeding.`
+        : 'No torrent-client matches to protect.');
+  } else {
+    sub = (seed && seed.error) || 'Connect Cleanuparr to protect torrents that have not met your seed rules.';
+  }
+  return `<label class="remove-option protect">
+      <input id="rm-protect-seed" type="checkbox" ${enabled ? 'checked' : 'disabled'} onchange="syncRemovalDependencies()">
+      <span>
+        <div class="remove-option-title">Don't delete torrents under Cleanuparr's minimum seed time</div>
+        <div class="remove-option-sub">${esc(sub)}</div>
+      </span>
+    </label>`;
+}
+
+function removalAdvancedHTML(o) {
+  return `<button class="remove-adv-toggle" type="button" id="removeAdvToggle" onclick="toggleRemovalAdvanced()">
+      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 1.5L7 5 3.5 8.5"/></svg>
+      Advanced — pick each action à la carte
+    </button>
+    <div class="remove-advanced" id="removeAdvanced">
+      <div class="remove-options">
+        <label class="remove-option">
+          <input id="rm-arr" type="checkbox" ${o.arrEnabled ? '' : 'disabled'} onchange="syncRemovalDependencies()">
+          <span>
+            <div class="remove-option-title">Remove from ${esc(o.arrLabel)}</div>
+            <div class="remove-option-sub">${o.arrSub}</div>
+          </span>
+        </label>
+        <label class="remove-option">
+          <input id="rm-arr-files" type="checkbox" ${o.arrEnabled ? '' : 'disabled'} onchange="syncRemovalDependencies()">
+          <span>
+            <div class="remove-option-title">Delete ${esc(o.arrLabel)} media files</div>
+            <div class="remove-option-sub">${o.arrFilesSub}</div>
+          </span>
+        </label>
+        <label class="remove-option">
+          <input id="rm-plex" type="checkbox" ${o.plexEnabled ? '' : 'disabled'} onchange="syncRemovalDependencies()">
+          <span>
+            <div class="remove-option-title">Delete from Plex and disk</div>
+            <div class="remove-option-sub">${o.plexSub}</div>
+          </span>
+        </label>
+        <label class="remove-option">
+          <input id="rm-downloads" type="checkbox" ${o.downloadsEnabled ? '' : 'disabled'}>
+          <span>
+            <div class="remove-option-title">Remove active download via ${esc(o.arrLabel)}</div>
+            <div class="remove-option-sub">${o.downloadsSub}</div>
+          </span>
+        </label>
+        <label class="remove-option">
+          <input id="rm-torrents" type="checkbox" ${o.torrentsEnabled ? '' : 'disabled'} onchange="syncRemovalDependencies()">
+          <span>
+            <div class="remove-option-title">Delete matched torrent-client entries with data</div>
+            <div class="remove-option-sub">${o.torrentsSub}</div>
+          </span>
+        </label>
+        <label class="remove-option">
+          <input id="rm-cleanuparr" type="checkbox" ${o.cleanuparrEnabled ? '' : 'disabled'}>
+          <span>
+            <div class="remove-option-title">Trigger Cleanuparr Download Cleaner</div>
+            <div class="remove-option-sub">${o.cleanuparrSub}</div>
+          </span>
+        </label>
+      </div>
+    </div>`;
+}
+
+function removalPresetsHTML(o) {
+  return `<div class="remove-presets">
+      <button class="remove-preset" type="button" data-remove-preset="delete" onclick="applyRemovalPreset('delete')">
+        <div class="remove-preset-title">Delete everything now</div>
+        <div class="remove-preset-sub">${o.deleteSub}</div>
+      </button>
+      <button class="remove-preset" type="button" data-remove-preset="uncouple" onclick="applyRemovalPreset('uncouple')" ${o.uncoupleEnabled ? '' : 'disabled'}>
+        <div class="remove-preset-title">Uncouple, keep seeding</div>
+        <div class="remove-preset-sub">${o.uncoupleSub}</div>
+      </button>
+    </div>`;
+}
+
 function renderRemovalConfirmation(id, t, preview) {
-  const radarrReady = !!preview.radarr_movie;
-  removalRadarrTracked = radarrReady;
+  const arrLabel = arrLabelOf(preview);
+  const mediaLabel = t.type === 'movie' ? 'movie' : 'show';
+  const arrReady = !!preview.arr_item;
+  removalArrTracked = arrReady;
+  removalArrLabel = arrLabel;
+  removalMediaLabel = mediaLabel;
   const spaceLine = removalSpaceLine([id]);
-  const downloadsReady = radarrReady && !preview.queue_error && preview.downloads.length > 0;
+  const downloadsReady = arrReady && !preview.queue_error && preview.downloads.length > 0;
   const torrentMatches = preview.torrent_matches || [];
   const torrentReady = preview.torrent_client_configured && !preview.torrent_error && torrentMatches.length > 0;
+  const seed = preview.seed_protection || {};
+  const protectedCount = torrentMatches.filter(m => m.seed_protected).length;
   const torrentNames = torrentMatches.slice(0, 3).map(match => match.name).filter(Boolean);
   const torrentSummary = torrentNames.length
     ? ` Matches: ${torrentNames.map(esc).join(', ')}${torrentMatches.length > torrentNames.length ? ', ...' : ''}`
     : '';
   const status = [
-    preview.radarr_error,
+    preview.arr_error,
     preview.queue_error,
     preview.torrent_error,
-    downloadsReady ? `${preview.downloads.length} active Radarr download${preview.downloads.length === 1 ? '' : 's'} found.` : '',
+    downloadsReady ? `${preview.downloads.length} active ${arrLabel} download${preview.downloads.length === 1 ? '' : 's'} found.` : '',
     torrentReady ? `${torrentMatches.length} torrent-client match${torrentMatches.length === 1 ? '' : 'es'} found.` : '',
     spaceLine,
   ].filter(Boolean).map(esc).join('<br>');
@@ -2068,83 +2341,50 @@ function renderRemovalConfirmation(id, t, preview) {
     <button class="modal-close" onclick="closeModal()"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M2 2l10 10M12 2L2 12"/></svg></button>
     <div class="remove-confirm">
       <div class="modal-title">Remove ${esc(t.title)}?</div>
-      <div class="remove-warning">Choose a track, then adjust the advanced switches if needed. Nothing is deleted until you confirm twice.</div>
+      <div class="remove-warning">Pick a protocol below. Fine-grained switches live under Advanced. Nothing is deleted until you confirm twice.</div>
       <div class="remove-caution" id="removeCaution" style="display:none"></div>
       ${status ? `<div class="remove-status">${status}</div>` : ''}
-      <div class="remove-presets">
-        <button class="remove-preset" type="button" data-remove-preset="delete" onclick="applyRemovalPreset('delete')">
-          <div class="remove-preset-title">Delete everything now</div>
-          <div class="remove-preset-sub">Remove Radarr tracking, delete Radarr-managed files, delete Plex when available, and clear matched torrent-client data.</div>
-        </button>
-        <button class="remove-preset" type="button" data-remove-preset="uncouple" onclick="applyRemovalPreset('uncouple')" ${preview.cleanuparr_available && radarrReady ? '' : 'disabled'}>
-          <div class="remove-preset-title">Uncouple, keep seeding</div>
-          <div class="remove-preset-sub">Remove from Radarr but leave the torrent client alone so Cleanuparr can clean it after your seed rules are met.</div>
-        </button>
-      </div>
-      <div class="modal-section-label">Advanced Switches</div>
-      <div class="remove-options">
-        <label class="remove-option">
-          <input id="rm-radarr" type="checkbox" ${radarrReady ? '' : 'disabled'} onchange="syncRemovalDependencies()">
-          <span>
-            <div class="remove-option-title">Remove from Radarr</div>
-            <div class="remove-option-sub">Stops Radarr tracking this movie. By itself, this does not delete media files.</div>
-          </span>
-        </label>
-        <label class="remove-option">
-          <input id="rm-radarr-files" type="checkbox" ${radarrReady ? '' : 'disabled'} onchange="syncRemovalDependencies()">
-          <span>
-            <div class="remove-option-title">Delete Radarr media files</div>
-            <div class="remove-option-sub">Passes <code>deleteFiles=true</code> to Radarr. This deletes the movie files/folder Radarr manages; hardlinked torrent data may still need download-client removal or Cleanuparr.</div>
-          </span>
-        </label>
-        <label class="remove-option">
-          <input id="rm-plex" type="checkbox" ${preview.plex_available ? '' : 'disabled'} onchange="syncRemovalDependencies()">
-          <span>
-            <div class="remove-option-title">Delete from Plex and disk</div>
-            <div class="remove-option-sub">Permanently deletes the Plex library item and its associated media file. Requires Plex Settings &gt; Server &gt; Library &gt; Allow media deletion.</div>
-          </span>
-        </label>
-        <label class="remove-option">
-          <input id="rm-downloads" type="checkbox" ${downloadsReady ? '' : 'disabled'}>
-          <span>
-            <div class="remove-option-title">Remove active download via Radarr</div>
-            <div class="remove-option-sub">Deletes ${preview.downloads.length} matching active download${preview.downloads.length === 1 ? '' : 's'} from the configured download client.</div>
-          </span>
-        </label>
-        <label class="remove-option">
-          <input id="rm-torrents" type="checkbox" ${torrentReady ? '' : 'disabled'} onchange="syncRemovalDependencies()">
-          <span>
-            <div class="remove-option-title">Delete matched torrent-client entries with data</div>
-            <div class="remove-option-sub">Deletes ${torrentMatches.length} matched torrent${torrentMatches.length === 1 ? '' : 's'} from qBittorrent/Transmission with data. This is the cross-seed/original torrent cleanup path.${torrentSummary}</div>
-          </span>
-        </label>
-        <label class="remove-option">
-          <input id="rm-cleanuparr" type="checkbox" ${preview.cleanuparr_available ? '' : 'disabled'}>
-          <span>
-            <div class="remove-option-title">Trigger Cleanuparr Download Cleaner</div>
-            <div class="remove-option-sub">Runs Cleanuparr once after removal. Configure Cleanuparr's unlinked download and seeding rules to remove torrent-client files.</div>
-          </span>
-        </label>
-      </div>
+      ${removalPresetsHTML({
+        deleteSub: `Remove ${arrLabel} tracking, delete ${arrLabel}-managed files, delete Plex when available, and clear matched torrent-client data.`,
+        uncoupleEnabled: preview.cleanuparr_available && arrReady,
+        uncoupleSub: `Remove from ${arrLabel} but leave the torrent client alone so Cleanuparr can clean it after your seed rules are met.`,
+      })}
+      ${seedProtectionOptionHTML(seed, torrentMatches.length, protectedCount)}
+      ${removalAdvancedHTML({
+        arrLabel,
+        arrEnabled: arrReady,
+        arrSub: `Stops ${arrLabel} tracking this ${mediaLabel}. By itself, this does not delete media files.`,
+        arrFilesSub: `Passes <code>deleteFiles=true</code> to ${arrLabel}. This deletes the ${mediaLabel === 'movie' ? 'movie files/folder' : "show's episode files/folder"} ${arrLabel} manages; hardlinked torrent data may still need download-client removal or Cleanuparr.`,
+        plexEnabled: preview.plex_available,
+        plexSub: `Permanently deletes the Plex library item and its associated media file${mediaLabel === 'show' ? 's (all episodes)' : ''}. Requires Plex Settings &gt; Server &gt; Library &gt; Allow media deletion.`,
+        downloadsEnabled: downloadsReady,
+        downloadsSub: `Deletes ${preview.downloads.length} matching active download${preview.downloads.length === 1 ? '' : 's'} from the configured download client.`,
+        torrentsEnabled: torrentReady,
+        torrentsSub: `Deletes ${torrentMatches.length} matched torrent${torrentMatches.length === 1 ? '' : 's'} from qBittorrent/Transmission with data. This is the cross-seed/original torrent cleanup path.${torrentSummary}`,
+        cleanuparrEnabled: preview.cleanuparr_available,
+        cleanuparrSub: "Runs Cleanuparr once after removal. Configure Cleanuparr's unlinked download and seeding rules to remove torrent-client files.",
+      })}
     </div>
     <div class="modal-foot">
       <button class="modal-btn ghost" onclick="closeModal()">Cancel</button>
-      <button class="modal-btn danger" id="removeConfirmBtn" onclick="confirmMovieRemoval(${id})">Confirm deletion</button>
+      <button class="modal-btn danger" id="removeConfirmBtn" onclick="confirmTitleRemoval(${id})">Confirm deletion</button>
     </div>`;
   applyRemovalPreset('delete');
 }
 
 function removalCapabilities(item) {
   const preview = item.preview || {};
-  const radarrReady = !!preview.radarr_movie;
   const downloads = preview.downloads || [];
   const torrentMatches = preview.torrent_matches || [];
+  const arrReady = !!preview.arr_item;
   return {
-    radarrReady,
-    downloadsReady: radarrReady && !preview.queue_error && downloads.length > 0,
+    arrReady,
+    arrLabel: arrLabelOf(preview),
+    downloadsReady: arrReady && !preview.queue_error && downloads.length > 0,
     plexReady: !!preview.plex_available,
     torrentReady: !!preview.torrent_client_configured && !preview.torrent_error && torrentMatches.length > 0,
     cleanuparrReady: !!preview.cleanuparr_available,
+    seedProtectionAvailable: !!(preview.seed_protection && preview.seed_protection.available),
     downloadCount: downloads.length,
     torrentCount: torrentMatches.length,
   };
@@ -2152,22 +2392,25 @@ function removalCapabilities(item) {
 
 function checkedRemovalChoices() {
   syncRemovalDependencies();
+  const protect = $('rm-protect-seed');
   return {
-    removeRadarr: $('rm-radarr').checked,
-    deleteRadarrFiles: $('rm-radarr-files').checked,
+    removeArr: $('rm-arr').checked,
+    deleteArrFiles: $('rm-arr-files').checked,
     deletePlex: $('rm-plex').checked,
     removeDownloads: $('rm-downloads').checked,
     deleteTorrentMatches: $('rm-torrents').checked,
     triggerCleanuparr: $('rm-cleanuparr').checked,
+    protectSeeding: !!(protect && protect.checked && !protect.disabled),
   };
 }
 
-function removalChoiceLabels(choices) {
+function removalChoiceLabels(choices, arrLabel) {
+  const arr = arrLabel || removalArrLabel;
   return [
-    choices.deleteRadarrFiles ? 'remove from Radarr and delete Radarr files' : (choices.removeRadarr ? 'remove from Radarr' : ''),
+    choices.deleteArrFiles ? `remove from ${arr} and delete ${arr} files` : (choices.removeArr ? `remove from ${arr}` : ''),
     choices.deletePlex ? 'delete from Plex and disk' : '',
     choices.removeDownloads ? 'remove active downloads' : '',
-    choices.deleteTorrentMatches ? 'delete matched torrent-client data' : '',
+    choices.deleteTorrentMatches ? (choices.protectSeeding ? 'delete matched torrent-client data (keeping torrents under the minimum seed time)' : 'delete matched torrent-client data') : '',
     choices.triggerCleanuparr ? 'trigger Cleanuparr' : '',
   ].filter(Boolean);
 }
@@ -2176,14 +2419,15 @@ function batchPayloadForItem(item, choices) {
   const caps = removalCapabilities(item);
   const payload = {
     confirmed: true,
-    remove_radarr: choices.removeRadarr && caps.radarrReady,
-    delete_radarr_files: choices.deleteRadarrFiles && caps.radarrReady,
+    remove_arr: choices.removeArr && caps.arrReady,
+    delete_arr_files: choices.deleteArrFiles && caps.arrReady,
     delete_plex: choices.deletePlex && caps.plexReady,
     remove_downloads: choices.removeDownloads && caps.downloadsReady,
     delete_torrent_matches: choices.deleteTorrentMatches && caps.torrentReady,
     trigger_cleanuparr: choices.triggerCleanuparr && caps.cleanuparrReady,
+    protect_seeding: choices.protectSeeding && caps.seedProtectionAvailable,
   };
-  const hasBaseAction = payload.remove_radarr || payload.delete_radarr_files || payload.delete_plex || payload.remove_downloads || payload.delete_torrent_matches;
+  const hasBaseAction = payload.remove_arr || payload.delete_arr_files || payload.delete_plex || payload.remove_downloads || payload.delete_torrent_matches;
   return hasBaseAction ? payload : null;
 }
 
@@ -2195,15 +2439,15 @@ function setRemovalChecked(id, checked) {
 function applyRemovalPreset(mode) {
   document.querySelectorAll('[data-remove-preset]').forEach(btn => btn.classList.toggle('on', btn.dataset.removePreset === mode));
   if (mode === 'delete') {
-    setRemovalChecked('rm-radarr', true);
-    setRemovalChecked('rm-radarr-files', true);
+    setRemovalChecked('rm-arr', true);
+    setRemovalChecked('rm-arr-files', true);
     setRemovalChecked('rm-plex', true);
     setRemovalChecked('rm-downloads', true);
     setRemovalChecked('rm-torrents', true);
     setRemovalChecked('rm-cleanuparr', true);
   } else if (mode === 'uncouple') {
-    setRemovalChecked('rm-radarr', true);
-    setRemovalChecked('rm-radarr-files', false);
+    setRemovalChecked('rm-arr', true);
+    setRemovalChecked('rm-arr-files', false);
     setRemovalChecked('rm-plex', false);
     setRemovalChecked('rm-downloads', false);
     setRemovalChecked('rm-torrents', false);
@@ -2213,26 +2457,20 @@ function applyRemovalPreset(mode) {
 }
 
 function syncRemovalDependencies() {
-  const removeRadarr = $('rm-radarr');
-  const deleteRadarrFiles = $('rm-radarr-files');
-  if (deleteRadarrFiles && deleteRadarrFiles.checked && removeRadarr && !removeRadarr.disabled) {
-    removeRadarr.checked = true;
+  const removeArr = $('rm-arr');
+  const deleteArrFiles = $('rm-arr-files');
+  if (deleteArrFiles && deleteArrFiles.checked && removeArr && !removeArr.disabled) {
+    removeArr.checked = true;
   }
-  if (removeRadarr && !removeRadarr.checked && deleteRadarrFiles) {
-    deleteRadarrFiles.checked = false;
+  if (removeArr && !removeArr.checked && deleteArrFiles) {
+    deleteArrFiles.checked = false;
   }
   updateRemovalCaution();
 }
 
-async function confirmMovieRemoval(id) {
+async function confirmTitleRemoval(id) {
   const choices = checkedRemovalChoices();
-  const removeRadarr = choices.removeRadarr;
-  const deleteRadarrFiles = choices.deleteRadarrFiles;
-  const deletePlex = choices.deletePlex;
-  const removeDownloads = choices.removeDownloads;
-  const deleteTorrentMatches = choices.deleteTorrentMatches;
-  const triggerCleanuparr = choices.triggerCleanuparr;
-  if (!removeRadarr && !deleteRadarrFiles && !deletePlex && !removeDownloads && !deleteTorrentMatches) {
+  if (!choices.removeArr && !choices.deleteArrFiles && !choices.deletePlex && !choices.removeDownloads && !choices.deleteTorrentMatches) {
     toast('Select at least one removal action');
     return;
   }
@@ -2248,12 +2486,13 @@ async function confirmMovieRemoval(id) {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
         confirmed: true,
-        remove_radarr: removeRadarr,
-        delete_radarr_files: deleteRadarrFiles,
-        delete_plex: deletePlex,
-        remove_downloads: removeDownloads,
-        delete_torrent_matches: deleteTorrentMatches,
-        trigger_cleanuparr: triggerCleanuparr,
+        remove_arr: choices.removeArr,
+        delete_arr_files: choices.deleteArrFiles,
+        delete_plex: choices.deletePlex,
+        remove_downloads: choices.removeDownloads,
+        delete_torrent_matches: choices.deleteTorrentMatches,
+        trigger_cleanuparr: choices.triggerCleanuparr,
+        protect_seeding: choices.protectSeeding,
       }),
     });
     const d = await r.json();
@@ -2297,22 +2536,16 @@ function toggleAllVisible(checked) {
 async function handleBatchRemove() {
   const titles = allTitles.filter(t => selectedTitles.has(t.id));
   if (!titles.length) return;
-  const movies = titles.filter(t => t.type === 'movie');
-  const unsupported = titles.filter(t => t.type !== 'movie');
-  if (!movies.length) {
-    toast('Sonarr removal is not wired yet');
-    return;
-  }
 
   $('modal').innerHTML = `
     <button class="modal-close" onclick="closeModal()"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M2 2l10 10M12 2L2 12"/></svg></button>
     <div class="remove-confirm">
       <div class="modal-title">Preparing batch removal</div>
-      <div class="remove-status">Checking ${movies.length} selected movie${movies.length === 1 ? '' : 's'}...</div>
+      <div class="remove-status">Checking ${titles.length} selected title${titles.length === 1 ? '' : 's'}...</div>
     </div>`;
   $('modalBg').classList.add('on');
 
-  const previews = await Promise.all(movies.map(async title => {
+  const previews = await Promise.all(titles.map(async title => {
     try {
       const r = await authFetch(`/api/remove/${title.id}/preview`);
       const d = await r.json();
@@ -2323,90 +2556,62 @@ async function handleBatchRemove() {
     }
   }));
   batchRemovalItems = previews.filter(item => item.preview);
-  renderBatchRemovalConfirmation(previews, unsupported);
+  renderBatchRemovalConfirmation(previews);
 }
 
-function renderBatchRemovalConfirmation(items, unsupported) {
+function renderBatchRemovalConfirmation(items) {
   const readyItems = items.filter(item => item.preview);
   const blockedItems = items.filter(item => item.error);
-  batchInitialSkipped = blockedItems.length + unsupported.length;
+  batchInitialSkipped = blockedItems.length;
   const caps = readyItems.map(removalCapabilities);
-  const radarrCount = caps.filter(c => c.radarrReady).length;
+  const arrLabels = [...new Set(caps.filter(c => c.arrReady).map(c => c.arrLabel))];
+  const arrLabel = arrLabels.length === 1 ? arrLabels[0] : 'Radarr/Sonarr';
+  const arrCount = caps.filter(c => c.arrReady).length;
   const plexCount = caps.filter(c => c.plexReady).length;
   const downloadsCount = caps.reduce((sum, c) => sum + c.downloadCount, 0);
   const torrentsCount = caps.reduce((sum, c) => sum + c.torrentCount, 0);
   const cleanuparrCount = caps.filter(c => c.cleanuparrReady).length;
+  const seedAvailable = caps.some(c => c.seedProtectionAvailable);
+  const protectedCount = readyItems.reduce((sum, item) =>
+    sum + (item.preview.torrent_matches || []).filter(m => m.seed_protected).length, 0);
+  const seedSample = readyItems.map(item => item.preview.seed_protection).find(s => s && s.available);
   const readyNames = readyItems.slice(0, 5).map(item => item.title.title);
-  removalRadarrTracked = radarrCount > 0;
+  removalArrTracked = arrCount > 0;
+  removalArrLabel = arrLabel;
+  removalMediaLabel = 'title';
   const spaceLine = removalSpaceLine(readyItems.map(item => item.title.id));
   const status = [
-    readyItems.length ? `${readyItems.length} movie${readyItems.length === 1 ? '' : 's'} ready: ${readyNames.map(esc).join(', ')}${readyItems.length > readyNames.length ? ', ...' : ''}` : '',
-    unsupported.length ? `${unsupported.length} selected show${unsupported.length === 1 ? '' : 's'} skipped because Sonarr removal is not wired yet.` : '',
-    blockedItems.length ? `${blockedItems.length} movie${blockedItems.length === 1 ? '' : 's'} could not be prepared and will be skipped.` : '',
+    readyItems.length ? `${readyItems.length} title${readyItems.length === 1 ? '' : 's'} ready: ${readyNames.map(esc).join(', ')}${readyItems.length > readyNames.length ? ', ...' : ''}` : '',
+    blockedItems.length ? `${blockedItems.length} title${blockedItems.length === 1 ? '' : 's'} could not be prepared and will be skipped.` : '',
     spaceLine ? esc(spaceLine) : '',
   ].filter(Boolean).join('<br>');
   $('modal').innerHTML = `
     <button class="modal-close" onclick="closeModal()"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M2 2l10 10M12 2L2 12"/></svg></button>
     <div class="remove-confirm">
-      <div class="modal-title">Remove ${readyItems.length} selected movie${readyItems.length === 1 ? '' : 's'}?</div>
-      <div class="remove-warning">These actions will be applied where available per movie. Each movie is rechecked by the server before anything is deleted.</div>
+      <div class="modal-title">Remove ${readyItems.length} selected title${readyItems.length === 1 ? '' : 's'}?</div>
+      <div class="remove-warning">These actions will be applied where available per title. Each title is rechecked by the server before anything is deleted.</div>
       <div class="remove-caution" id="removeCaution" style="display:none"></div>
       ${status ? `<div class="remove-status">${status}</div>` : ''}
-      <div class="remove-presets">
-        <button class="remove-preset" type="button" data-remove-preset="delete" onclick="applyRemovalPreset('delete')">
-          <div class="remove-preset-title">Delete everything now</div>
-          <div class="remove-preset-sub">Remove Radarr tracking, delete files where available, delete Plex where available, and clear matched torrent-client data.</div>
-        </button>
-        <button class="remove-preset" type="button" data-remove-preset="uncouple" onclick="applyRemovalPreset('uncouple')" ${cleanuparrCount && radarrCount ? '' : 'disabled'}>
-          <div class="remove-preset-title">Uncouple, keep seeding</div>
-          <div class="remove-preset-sub">Remove from Radarr where matched but leave torrent-client entries alone for seeding/Cleanuparr cleanup.</div>
-        </button>
-      </div>
-      <div class="modal-section-label">Advanced Switches</div>
-      <div class="remove-options">
-        <label class="remove-option">
-          <input id="rm-radarr" type="checkbox" ${radarrCount ? '' : 'disabled'} onchange="syncRemovalDependencies()">
-          <span>
-            <div class="remove-option-title">Remove from Radarr</div>
-            <div class="remove-option-sub">Available for ${radarrCount} selected movie${radarrCount === 1 ? '' : 's'}.</div>
-          </span>
-        </label>
-        <label class="remove-option">
-          <input id="rm-radarr-files" type="checkbox" ${radarrCount ? '' : 'disabled'} onchange="syncRemovalDependencies()">
-          <span>
-            <div class="remove-option-title">Delete Radarr media files</div>
-            <div class="remove-option-sub">Passes <code>deleteFiles=true</code> for the ${radarrCount} Radarr-matched movie${radarrCount === 1 ? '' : 's'}.</div>
-          </span>
-        </label>
-        <label class="remove-option">
-          <input id="rm-plex" type="checkbox" ${plexCount ? '' : 'disabled'} onchange="syncRemovalDependencies()">
-          <span>
-            <div class="remove-option-title">Delete from Plex and disk</div>
-            <div class="remove-option-sub">Available for ${plexCount} selected movie${plexCount === 1 ? '' : 's'} with Plex deletion support.</div>
-          </span>
-        </label>
-        <label class="remove-option">
-          <input id="rm-downloads" type="checkbox" ${downloadsCount ? '' : 'disabled'}>
-          <span>
-            <div class="remove-option-title">Remove active download via Radarr</div>
-            <div class="remove-option-sub">Deletes ${downloadsCount} matching active download${downloadsCount === 1 ? '' : 's'} from the configured download client.</div>
-          </span>
-        </label>
-        <label class="remove-option">
-          <input id="rm-torrents" type="checkbox" ${torrentsCount ? '' : 'disabled'} onchange="syncRemovalDependencies()">
-          <span>
-            <div class="remove-option-title">Delete matched torrent-client entries with data</div>
-            <div class="remove-option-sub">Deletes ${torrentsCount} matched torrent-client entr${torrentsCount === 1 ? 'y' : 'ies'} with data across the selected movies.</div>
-          </span>
-        </label>
-        <label class="remove-option">
-          <input id="rm-cleanuparr" type="checkbox" ${cleanuparrCount ? '' : 'disabled'}>
-          <span>
-            <div class="remove-option-title">Trigger Cleanuparr Download Cleaner</div>
-            <div class="remove-option-sub">Available for ${cleanuparrCount} selected movie${cleanuparrCount === 1 ? '' : 's'} after a removal action.</div>
-          </span>
-        </label>
-      </div>
+      ${removalPresetsHTML({
+        deleteSub: `Remove ${arrLabel} tracking, delete files where available, delete Plex where available, and clear matched torrent-client data.`,
+        uncoupleEnabled: cleanuparrCount && arrCount,
+        uncoupleSub: `Remove from ${arrLabel} where matched but leave torrent-client entries alone for seeding/Cleanuparr cleanup.`,
+      })}
+      ${seedProtectionOptionHTML(seedSample || {available: seedAvailable}, torrentsCount, protectedCount)}
+      ${removalAdvancedHTML({
+        arrLabel,
+        arrEnabled: arrCount,
+        arrSub: `Available for ${arrCount} selected title${arrCount === 1 ? '' : 's'}.`,
+        arrFilesSub: `Passes <code>deleteFiles=true</code> for the ${arrCount} ${esc(arrLabel)}-matched title${arrCount === 1 ? '' : 's'}.`,
+        plexEnabled: plexCount,
+        plexSub: `Available for ${plexCount} selected title${plexCount === 1 ? '' : 's'} with Plex deletion support.`,
+        downloadsEnabled: downloadsCount,
+        downloadsSub: `Deletes ${downloadsCount} matching active download${downloadsCount === 1 ? '' : 's'} from the configured download client.`,
+        torrentsEnabled: torrentsCount,
+        torrentsSub: `Deletes ${torrentsCount} matched torrent-client entr${torrentsCount === 1 ? 'y' : 'ies'} with data across the selected titles.`,
+        cleanuparrEnabled: cleanuparrCount,
+        cleanuparrSub: `Available for ${cleanuparrCount} selected title${cleanuparrCount === 1 ? '' : 's'} after a removal action.`,
+      })}
     </div>
     <div class="modal-foot">
       <button class="modal-btn ghost" onclick="closeModal()">Cancel</button>
@@ -2421,11 +2626,11 @@ async function confirmBatchRemoval() {
     .map(item => ({ item, payload: batchPayloadForItem(item, choices) }))
     .filter(entry => entry.payload);
   if (!work.length) {
-    toast('Select at least one removal action available for the selected movies');
+    toast('Select at least one removal action available for the selected titles');
     return;
   }
   const chosen = removalChoiceLabels(choices);
-  if (!window.confirm(`Confirm batch deletion for ${work.length} movie${work.length === 1 ? '' : 's'}: ${chosen.join(', ')}?`)) return;
+  if (!window.confirm(`Confirm batch deletion for ${work.length} title${work.length === 1 ? '' : 's'}: ${chosen.join(', ')}?`)) return;
 
   const btn = $('removeConfirmBtn');
   btn.disabled = true;
@@ -2475,12 +2680,21 @@ function toast(msg) {
   toastTimer = setTimeout(() => el.classList.remove('on'), 3200);
 }
 
-// ════ FILTERS ════
+// ════ PAGES / FILTERS ════
+let currentPage = 'library';
+function setPage(page) {
+  currentPage = page === 'stats' ? 'stats' : 'library';
+  $('statsPage').classList.toggle('on', currentPage === 'stats');
+  $('libraryPage').classList.toggle('on', currentPage === 'library');
+  const nav = $('navStats');
+  if (nav) nav.classList.toggle('on', currentPage === 'stats');
+}
 function setType(t, el) {
   filterType = t; filterCov = null;
   document.querySelectorAll('[data-type]').forEach(b=>b.classList.remove('on'));
   document.querySelectorAll('[data-cov]').forEach(b=>b.classList.remove('on'));
   el.classList.add('on');
+  setPage('library');
   loadTitles();
   loadCounts();
 }
@@ -2488,6 +2702,7 @@ function setCoverage(c, el) {
   filterCov = filterCov === c ? null : c;
   document.querySelectorAll('[data-cov]').forEach(b=>b.classList.remove('on'));
   if (filterCov === c) el.classList.add('on');
+  setPage('library');
   render();
 }
 function toggleSvc(s) {
