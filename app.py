@@ -1466,31 +1466,45 @@ def _trigger_cleanuparr_download_cleaner():
     response.raise_for_status()
 
 # --- Cleanuparr seed-time protection ---
-# Cleanuparr's Download Cleaner rules include a minimum seed time (in hours)
-# per category. When the user opts in, torrents that have not yet met the
-# largest configured minimum are excluded from torrent-client deletion so
-# Cleanuparr can retire them later, once its own rules are satisfied.
+# Cleanuparr's Download Cleaner seeding rules clean a download when both max
+# ratio AND min seed time are met, or when max seed time is reached regardless
+# of ratio. minSeedTime 0 means "no minimum" and maxSeedTime -1 means
+# "disabled", both in hours. A rule's safe protect-until bound is therefore its
+# largest *enabled* time bound; the strictest rule wins overall. When the user
+# opts in, torrents still under that bound are excluded from torrent-client
+# deletion so Cleanuparr can retire them once its own rules are satisfied.
 _cleanuparr_seed_cache_lock = threading.Lock()
 _cleanuparr_seed_cache = {'expires': 0.0, 'result': None}
 CLEANUPARR_SEED_CACHE_TTL = 300
 
-def _collect_min_seed_hours(payload, found):
-    """Recursively collect values for keys that look like a min-seed-time rule."""
+def _collect_seed_time_hours(payload, found):
+    """Recursively collect each seeding rule's effective seed-time bound (hours).
+
+    Any dict carrying a min/max seed-time key is treated as one rule; its bound
+    is the largest positive value among them. A rule whose bounds are all
+    disabled (0 / -1) still records 0.0 so callers can tell "rules exist but
+    set no time bound" apart from "no rules readable".
+    """
     if isinstance(payload, dict):
+        bounds = None
         for key, value in payload.items():
             normalized = re.sub(r'[^a-z0-9]', '', str(key).lower())
-            if normalized == 'minseedtime':
+            if normalized in ('minseedtime', 'maxseedtime'):
                 try:
                     hours = float(value)
                 except (TypeError, ValueError):
                     continue
-                if hours >= 0:
-                    found.append(hours)
+                if bounds is None:
+                    bounds = []
+                if hours > 0:
+                    bounds.append(hours)
             else:
-                _collect_min_seed_hours(value, found)
+                _collect_seed_time_hours(value, found)
+        if bounds is not None:
+            found.append(max(bounds) if bounds else 0.0)
     elif isinstance(payload, list):
         for item in payload:
-            _collect_min_seed_hours(item, found)
+            _collect_seed_time_hours(item, found)
 
 def _cleanuparr_seed_protection():
     """Read Cleanuparr's minimum seed time. Returns {available, min_seed_seconds, error}."""
@@ -1509,7 +1523,7 @@ def _cleanuparr_seed_protection():
             if response.status_code >= 400:
                 continue
             found = []
-            _collect_min_seed_hours(response.json(), found)
+            _collect_seed_time_hours(response.json(), found)
             if found:
                 # Protect against the strictest (longest) configured rule.
                 result = {'available': True,
