@@ -20,22 +20,61 @@ def _seed_result(available=True, seconds=0, error=''):
 class TestSeedRuleParsing:
     def test_collects_camel_and_snake_case_keys(self):
         found = []
-        app_module._collect_min_seed_hours({
+        app_module._collect_seed_time_hours({
             'categories': [
                 {'name': 'radarr', 'minSeedTime': 48},
                 {'name': 'tv', 'min_seed_time': '12'},
             ],
-            'unrelated': {'maxSeedTime': 99},
         }, found)
         assert sorted(found) == [12.0, 48.0]
 
-    def test_ignores_garbage_and_negative_values(self):
+    def test_max_seed_time_counts_when_min_is_zero(self):
+        # Cleanuparr cleans on max seed time alone (regardless of ratio), so a
+        # rule with minSeedTime 0 but maxSeedTime 240 protects until 240h.
         found = []
-        app_module._collect_min_seed_hours(
-            {'minSeedTime': 'soon', 'nested': [{'minSeedTime': -1}, {'minSeedTime': 0}]},
+        app_module._collect_seed_time_hours({
+            'clients': [{'downloadClientName': 'qbit', 'seedingRules': [
+                {'name': 'default', 'maxRatio': -1, 'minSeedTime': 0, 'maxSeedTime': 240},
+            ]}],
+        }, found)
+        assert found == [240.0]
+
+    def test_strictest_bound_wins_within_a_rule(self):
+        found = []
+        app_module._collect_seed_time_hours({'minSeedTime': 48, 'maxSeedTime': 24}, found)
+        assert found == [48.0]
+
+    def test_disabled_bounds_still_record_the_rule(self):
+        found = []
+        app_module._collect_seed_time_hours(
+            {'minSeedTime': 'soon', 'nested': [{'minSeedTime': -1}, {'minSeedTime': 0, 'maxSeedTime': -1}]},
             found,
         )
-        assert found == [0.0]
+        assert found == [0.0, 0.0]
+
+
+class TestSeedProtectionLookup:
+    def test_reads_modern_download_cleaner_shape(self, app, monkeypatch):
+        _configure_cleanuparr(app)
+        payload = {'enabled': True, 'clients': [{'downloadClientName': 'qbit', 'seedingRules': [
+            {'name': 'default', 'maxRatio': -1, 'minSeedTime': 0, 'maxSeedTime': 240},
+        ]}]}
+
+        class FakeResponse:
+            status_code = 200
+
+            def json(self):
+                return payload
+
+        monkeypatch.setattr(app_module.requests, 'get', lambda *a, **k: FakeResponse())
+        app_module._cleanuparr_seed_cache['result'] = None
+        app_module._cleanuparr_seed_cache['expires'] = 0.0
+        try:
+            result = app_module._cleanuparr_seed_protection()
+        finally:
+            app_module._cleanuparr_seed_cache['result'] = None
+            app_module._cleanuparr_seed_cache['expires'] = 0.0
+        assert result == {'available': True, 'min_seed_seconds': 240 * 3600, 'error': ''}
 
 
 class TestSplitSeedProtected:

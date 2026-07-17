@@ -2445,13 +2445,16 @@ function toggleRemovalAdvanced() {
 
 function seedProtectionOptionHTML(seed, torrentCount, protectedCount) {
   const available = !!(seed && seed.available);
-  const enabled = available && torrentCount > 0;
+  const minSeconds = available ? (seed.min_seed_seconds || 0) : 0;
+  const enabled = available && minSeconds > 0 && torrentCount > 0;
   let sub;
-  if (available) {
-    sub = `Cleanuparr's minimum seed time is ${formatSeedHours(seed.min_seed_seconds)}. `
+  if (available && minSeconds > 0) {
+    sub = `Cleanuparr's strictest seed-time rule is ${formatSeedHours(minSeconds)} (the longest enabled min/max seed time across its seeding rules). `
       + (torrentCount > 0
         ? `${protectedCount} of ${torrentCount} matched torrent${torrentCount === 1 ? '' : 's'} ${protectedCount === 1 ? 'is' : 'are'} still under it and will be kept seeding.`
         : 'No torrent-client matches to protect.');
+  } else if (available) {
+    sub = "Cleanuparr's seeding rules set no seed-time bound (min seed time 0, max seed time disabled), so there is nothing to hold torrents to. Set a min or max seed time in Cleanuparr's Download Cleaner to use this.";
   } else {
     sub = (seed && seed.error) || 'Connect Cleanuparr to protect torrents that have not met your seed rules.';
   }
