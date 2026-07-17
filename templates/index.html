@@ -301,39 +301,48 @@
 
   .canvas { padding: 24px; max-width: 1600px; margin: 0 auto; }
 
-  /* ──── Metrics ──── */
-  .dash-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 12px;
-    margin-bottom: 24px;
-  }
-  .metric {
+  /* ──── Stats report ──── */
+  .stat-report { max-width: 880px; display: flex; flex-direction: column; gap: 18px; }
+  .stat-block {
     background: var(--bg-1);
     border: 1px solid var(--border-soft);
     border-radius: var(--radius);
-    padding: 16px 18px;
+    padding: 18px 20px;
   }
-  .metric-k {
-    font-size: 12px; font-weight: 500; color: var(--text-2);
-    display: flex; align-items: center; gap: 7px;
+  .stat-block-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    margin-bottom: 10px;
   }
-  .metric-k svg { opacity: 0.65; }
-  .metric-v {
-    font-size: 26px; font-weight: 650; letter-spacing: -0.02em;
-    color: var(--text); margin-top: 8px; line-height: 1.1;
-    font-variant-numeric: tabular-nums;
+  .stat-row {
+    display: flex; align-items: baseline; gap: 10px;
+    font-family: var(--mono); font-size: 12.5px; color: var(--text-2);
+    padding: 3px 0;
   }
-  .metric-sub { font-size: 12px; color: var(--text-3); margin-top: 4px; }
-  .metric.accent .metric-v { color: var(--accent); }
-
-  .sparkbar { display: flex; align-items: flex-end; gap: 4px; height: 26px; margin-top: 10px; }
-  .sparkbar span {
-    flex: 1; background: var(--bg-3); border-radius: 2px;
-    min-height: 3px; transition: opacity 0.15s ease;
+  .stat-row.indent { padding-left: 20px; }
+  .stat-dots { flex: 1; border-bottom: 1px dotted var(--border); transform: translateY(-3px); }
+  .stat-num { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .stat-num.accent { color: var(--accent-strong); }
+  .stat-pct { min-width: 44px; text-align: right; font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+  .stat-note { font-size: 11.5px; color: var(--text-3); margin-top: 10px; line-height: 1.5; }
+  .stat-btn {
+    height: 28px; padding: 0 12px; border-radius: var(--radius-s); cursor: pointer;
+    background: var(--accent-soft); border: 1px solid var(--accent-border);
+    color: var(--accent-strong); font-family: var(--sans); font-size: 12px; font-weight: 600;
+    transition: background 0.15s ease;
   }
-  .sparkbar span.lit { background: var(--bar-color, var(--accent)); opacity: 0.75; }
-  .sparkbar span.lit:hover { opacity: 1; }
+  .stat-btn:hover { background: var(--accent-border); }
+  .sbar-row {
+    display: grid; grid-template-columns: minmax(110px, 170px) 1fr 40px 44px;
+    gap: 12px; align-items: center; padding: 3px 0;
+    font-family: var(--mono); font-size: 12px; color: var(--text-2);
+  }
+  .sbar-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sbar-track { display: block; height: 6px; border-radius: 3px; background: var(--bg-3); overflow: hidden; }
+  .sbar-fill { display: block; height: 100%; border-radius: 3px; background: var(--accent); transition: width 0.5s ease; }
+  .stat-top { display: flex; align-items: baseline; gap: 12px; padding: 3px 0; font-size: 12.5px; }
+  .stat-top .stat-num { font-family: var(--mono); min-width: 72px; text-align: right; }
+  .stat-top-title { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .stat-top-svcs { margin-left: auto; font-family: var(--mono); font-size: 10px; letter-spacing: 0.04em; color: var(--text-3); white-space: nowrap; }
 
   /* ──── Filters ──── */
   .deck { margin-bottom: 20px; }
@@ -360,6 +369,12 @@
   select.svc-tool { outline: none; }
   button.svc-tool:hover, select.svc-tool:hover { border-color: var(--border); color: var(--text); }
   .svc-tool:disabled { opacity: 0.45; cursor: default; }
+  .tool-group { display: flex; align-items: center; gap: 6px; }
+  .tool-label {
+    font-family: var(--mono); font-size: 9.5px; font-weight: 500;
+    letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-3);
+    white-space: nowrap;
+  }
 
   /* Streaming services as a vertical list menu */
   .svc-list {
@@ -388,17 +403,27 @@
     display: flex; align-items: center; justify-content: center;
     border: 1px solid var(--border); border-radius: 4px;
     color: transparent;
+    transition: border-color 0.15s ease, background 0.15s ease;
   }
+  .svc-row-mark svg { transform: scale(0); transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1); }
   .svc-row.on .svc-row-mark { border-color: var(--accent-border); background: var(--accent-soft); color: var(--accent-strong); }
+  .svc-row.on .svc-row-mark svg { transform: scale(1); }
   .svc-row-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .svc-row-cnt { font-size: 11px; font-variant-numeric: tabular-nums; color: var(--text-3); }
   .svc-row.on .svc-row-cnt { color: var(--accent-strong); opacity: 0.8; }
   .svc-row-more { color: var(--text-3); font-size: 12px; justify-content: center; }
   .svc-row-more:hover { color: var(--text-2); }
 
+  /* ──── Library toolbar ──── */
+  .lib-tools { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .lib-count {
+    margin-left: auto; font-family: var(--mono); font-size: 11px;
+    color: var(--text-3); letter-spacing: 0.04em; font-variant-numeric: tabular-nums;
+  }
+
   /* ──── Stats page ──── */
   .page { display: none; }
-  .page.on { display: block; }
+  .page.on { display: block; animation: fade-in 0.2s ease; }
 
   /* ──── Poster grid ──── */
   .grid {
@@ -412,9 +437,9 @@
     background: var(--bg-1);
     border: 1px solid var(--border-soft);
     transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
-    animation: card-in 0.25s ease backwards;
   }
-  @keyframes card-in { from { opacity: 0; } to { opacity: 1; } }
+  .card.enter { animation: card-in 0.3s ease backwards; }
+  @keyframes card-in { from { opacity: 0; transform: translateY(6px) scale(0.98); } to { opacity: 1; } }
   .card:hover {
     transform: translateY(-2px);
     border-color: var(--border);
@@ -486,14 +511,18 @@
   .scrim .card-size { color: #5fe2ae; }
 
   /* ──── List view ──── */
-  .listview { display: none; flex-direction: column; gap: 2px; }
+  .listview { display: none; flex-direction: column; }
   .listview.on { display: flex; }
   .grid.off { display: none; }
+  .list-rows { display: flex; flex-direction: column; gap: 2px; }
 
+  /* Sticky, so Remove Selected stays reachable while selecting down a long list */
   .list-tools {
     display: flex; align-items: center; gap: 12px;
     padding: 8px 14px; margin-bottom: 6px; border-radius: var(--radius);
-    background: var(--bg-1); border: 1px solid var(--border-soft);
+    background: var(--glass); backdrop-filter: blur(8px);
+    border: 1px solid var(--border-soft);
+    position: sticky; top: 8px; z-index: 12;
   }
   .list-select-all {
     display: flex; align-items: center; gap: 8px;
@@ -504,6 +533,8 @@
     accent-color: var(--accent);
   }
   .list-check:disabled { opacity: 0.4; cursor: default; }
+  .list-check:checked { animation: check-pop 0.22s ease; }
+  @keyframes check-pop { 0% { transform: scale(0.7); } 60% { transform: scale(1.18); } 100% { transform: scale(1); } }
   .list-selected-count {
     flex: 1; font-size: 12px; color: var(--text-3);
     font-variant-numeric: tabular-nums;
@@ -521,10 +552,13 @@
     display: flex; align-items: center; gap: 14px;
     padding: 9px 14px; border-radius: var(--radius);
     background: var(--bg-1); border: 1px solid transparent;
-    cursor: pointer; transition: background 0.15s ease, border-color 0.15s ease;
+    cursor: pointer;
+    transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
   }
+  .lrow.enter { animation: row-in 0.25s ease backwards; }
+  @keyframes row-in { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; } }
   .lrow:hover { background: var(--bg-2); border-color: var(--border-soft); }
-  .lrow.selected { background: var(--accent-soft); border-color: var(--accent-border); }
+  .lrow.selected { background: var(--accent-soft); border-color: var(--accent-border); box-shadow: inset 2px 0 0 var(--accent); }
   .lrow-poster {
     width: 36px; height: 54px; border-radius: 4px; object-fit: cover;
     flex-shrink: 0; background: var(--bg-3);
@@ -649,7 +683,9 @@
   .lrow-size {
     font-family: var(--mono); font-size: 11px; color: var(--accent-strong);
     font-variant-numeric: tabular-nums; flex-shrink: 0; white-space: nowrap;
+    min-width: 64px; text-align: right;
   }
+  .lrow-size.dim { color: var(--text-3); }
   .card-size {
     display: inline-block; font-family: var(--mono); font-size: 10px;
     color: var(--accent-strong); margin-top: 2px; font-variant-numeric: tabular-nums;
@@ -945,13 +981,18 @@
 
   .setup-done-icon { text-align: center; margin-bottom: 18px; }
 
+  /* ──── Reduced motion ──── */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+
   /* ──── Responsive ──── */
   @media (max-width: 900px) {
     .rail { width: 60px; }
     .brand { justify-content: center; padding: 16px 8px; }
     .brand > div, .nav-btn span, .rail-heading, .sync-btn span, .rail-gear span { display: none; }
     .nav-btn, .rail-gear { justify-content: center; }
-    .dash-grid { grid-template-columns: repeat(2, 1fr); }
+    .sbar-row { grid-template-columns: 90px 1fr 36px 40px; }
     .svc-chips { flex-basis: 100%; }
     .drawer { width: 100vw; right: -100vw; }
   }
@@ -1036,7 +1077,8 @@
     <div class="cmdbar">
       <div class="search">
         <span class="ico"><svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="6.5" cy="6.5" r="4.5"/><path d="M10 10l3.5 3.5" stroke-linecap="round"/></svg></span>
-        <input type="text" id="search" placeholder="Search the depths…" oninput="onSearch()">
+        <input type="text" id="search" placeholder="Search the depths…  ( / )" oninput="onSearch()"
+               onkeydown="if(event.key==='Escape'){this.value='';onSearch();this.blur();event.stopPropagation();}">
       </div>
       <div class="cmdbar-right">
         <div class="status-chip" id="statusChip"><span class="dot"></span><span id="statusText">Idle</span></div>
@@ -1057,28 +1099,9 @@
 
         <!-- Stats page (hidden behind the Stats nav item) -->
         <div class="page" id="statsPage">
-        <div class="dash-grid">
-          <div class="metric" id="m-total-card">
-            <div class="metric-k"><svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><rect x="0.5" y="0.5" width="5" height="5" rx="1"/><rect x="6.5" y="0.5" width="5" height="5" rx="1"/><rect x="0.5" y="6.5" width="5" height="5" rx="1"/><rect x="6.5" y="6.5" width="5" height="5" rx="1"/></svg> <span id="m-total-label">Library Size</span></div>
-            <div class="metric-v" id="m-total">—</div>
-            <div class="metric-sub" id="m-total-sub">titles indexed</div>
+          <div class="stat-report" id="statReport">
+            <div class="stat-block"><div class="stat-note">Compiling fleet report…</div></div>
           </div>
-          <div class="metric accent">
-            <div class="metric-k"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M6 1l4 1.8v3c0 2.4-1.7 4-4 4.7-2.3-.7-4-2.3-4-4.7v-3z"/></svg> Streaming Overlap</div>
-            <div class="metric-v" id="m-overlap">—</div>
-            <div class="metric-sub" id="m-overlap-sub">available elsewhere</div>
-          </div>
-          <div class="metric">
-            <div class="metric-k"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="6" cy="6" r="5"/><path d="M4 4l4 4M8 4l-4 4"/></svg> Plex Exclusive</div>
-            <div class="metric-v" id="m-orphan">—</div>
-            <div class="metric-sub" id="m-orphan-sub">not on any service</div>
-          </div>
-          <div class="metric">
-            <div class="metric-k"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1 9l3-3 2 2 5-5M11 4V1H8" stroke-linecap="round" stroke-linejoin="round"/></svg> Top Service</div>
-            <div class="metric-v" id="m-top" style="font-size:22px">—</div>
-            <div class="sparkbar" id="sparkbar"></div>
-          </div>
-        </div>
         </div><!-- /statsPage -->
 
         <!-- Library page -->
@@ -1093,14 +1116,20 @@
               <span class="deck-summary" id="svcSummary"></span>
             </button>
             <div class="svc-tools">
-              <select class="svc-tool" id="svcSort" onchange="setServiceSort(this.value)" title="Sort services">
-                <option value="manual">Manual</option>
-                <option value="name">Name</option>
-                <option value="overlap">Overlap Count</option>
-              </select>
-              <select class="svc-tool" id="svcListSelect" onchange="applyServiceList(this.value)" title="Apply saved service list">
-                <option value="">Saved Lists</option>
-              </select>
+              <label class="tool-group" title="Change how services are ordered in this menu">
+                <span class="tool-label">Sort</span>
+                <select class="svc-tool" id="svcSort" onchange="setServiceSort(this.value)">
+                  <option value="manual">Manual (drag)</option>
+                  <option value="name">Name</option>
+                  <option value="overlap">Overlap Count</option>
+                </select>
+              </label>
+              <label class="tool-group" title="Apply a saved set of services">
+                <span class="tool-label">Saved lists</span>
+                <select class="svc-tool" id="svcListSelect" onchange="applyServiceList(this.value)">
+                  <option value="">Choose…</option>
+                </select>
+              </label>
               <button class="svc-tool" type="button" onclick="saveServiceList()">Save List</button>
               <button class="svc-tool" type="button" id="svcDeleteList" onclick="deleteServiceList()" disabled>Delete List</button>
             </div>
@@ -1108,10 +1137,36 @@
           <div class="svc-list" id="svcList"></div>
         </div>
 
+        <!-- Library toolbar -->
+        <div class="lib-tools">
+          <label class="tool-group" title="Change how titles are ordered">
+            <span class="tool-label">Sort titles</span>
+            <select class="svc-tool" id="librarySort" onchange="setLibrarySort(this.value)">
+              <option value="title">Title A–Z</option>
+              <option value="year">Year, newest first</option>
+              <option value="size">Disk size, largest first</option>
+              <option value="overlap">Most streaming services</option>
+            </select>
+          </label>
+          <span class="lib-count" id="libCount"></span>
+        </div>
+
         <!-- Poster grid -->
         <div class="grid" id="grid"></div>
         <!-- List view -->
-        <div class="listview" id="listview"></div>
+        <div class="listview" id="listview">
+          <div class="list-tools" id="listTools">
+            <label class="list-select-all">
+              <input class="list-check" id="listSelectAll" type="checkbox" onchange="toggleAllVisible(this.checked)" disabled>
+              <span>Select visible</span>
+            </label>
+            <span class="list-selected-count" id="listSelectedCount">0 selected</span>
+            <span class="list-freeable" id="freeableTotal"></span>
+            <button class="svc-tool" type="button" id="listClearBtn" onclick="clearListSelection()" disabled>Clear</button>
+            <button class="batch-remove" id="batchRemoveBtn" onclick="handleBatchRemove()" disabled>Remove Selected</button>
+          </div>
+          <div class="list-rows" id="listRows"></div>
+        </div>
 
         </div><!-- /libraryPage -->
 
@@ -1535,6 +1590,8 @@ const STORAGE_KEYS = {
   authToken: 'submarine.authToken',
   theme: 'submarine.theme',
   servicePanel: 'submarine.servicePanel',
+  view: 'submarine.view',
+  librarySort: 'submarine.librarySort',
 };
 const SERVICE_COLORS = {
   'Netflix': '#E50914',
@@ -1657,6 +1714,11 @@ function cycleTheme() {
 themeMedia.addEventListener('change', () => { if (themeMode === 'auto') applyTheme(); });
 applyTheme();
 
+const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+let librarySort = loadStorage(STORAGE_KEYS.librarySort, 'title');
+if (!['title', 'year', 'size', 'overlap'].includes(librarySort)) librarySort = 'title';
+view = loadStorage(STORAGE_KEYS.view, 'grid') === 'list' ? 'list' : 'grid';
+
 let serviceOrder = loadJSON(STORAGE_KEYS.serviceOrder, SERVICES);
 let serviceSort = loadStorage(STORAGE_KEYS.serviceSort, 'manual');
 let serviceLists = loadJSON(STORAGE_KEYS.serviceLists, {});
@@ -1732,16 +1794,11 @@ function countLocalStats(rows) {
     unavailable: rows.length - overlap,
   };
 }
-function metricScopeLabel() {
-  if (filterType === 'movie') return 'movies';
-  if (filterType === 'tv') return 'TV shows';
-  return 'library';
-}
 function renderServiceListSelect() {
   const select = $('svcListSelect');
   if (!select) return;
   const names = Object.keys(serviceLists).sort((a,b)=>a.localeCompare(b));
-  select.innerHTML = '<option value="">Saved Lists</option>' + names.map(name =>
+  select.innerHTML = '<option value="">Choose…</option>' + names.map(name =>
     `<option value="${esc(name)}" ${name === activeServiceList ? 'selected' : ''}>${esc(name)}</option>`
   ).join('');
   const deleteBtn = $('svcDeleteList');
@@ -1810,27 +1867,8 @@ function renderServiceChips() {
 function updateDashboardMetrics(stats) {
   if (!stats) stats = countLocalStats(allTitles);
   serviceCounts = stats.service_counts;
-  $('m-overlap').textContent = stats.overlap ?? '—';
-  $('m-orphan').textContent  = stats.unavailable ?? '—';
   $('t-covered').textContent = stats.overlap ?? '—';
   $('t-orphan').textContent  = stats.unavailable ?? '—';
-  $('m-overlap-sub').textContent = stats.total ? `${Math.round(stats.overlap / stats.total * 100)}% of ${metricScopeLabel()}` : 'available elsewhere';
-  $('m-orphan-sub').textContent = `not on any service in ${metricScopeLabel()}`;
-
-  const entries = Object.entries(stats.service_counts).filter(([,c]) => c > 0).sort((a,b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-  if (!entries.length) {
-    $('m-top').textContent = '—';
-    $('sparkbar').innerHTML = Array(8).fill('<span></span>').join('');
-  } else {
-    $('m-top').textContent = entries[0][0];
-    const max = entries[0][1] || 1;
-    const top8 = entries.slice(0, 8);
-    $('sparkbar').innerHTML = top8.map(([s,c]) => {
-      const pct = Math.max(8, Math.round(c / max * 100));
-      const label = `${s}: ${c} overlapping title${c === 1 ? '' : 's'}`;
-      return `<span class="lit" style="height:${pct}%;--bar-color:${serviceColor(s)}" title="${esc(label)}" data-label="${esc(label)}" aria-label="${esc(label)}"></span>`;
-    }).join('') + Array(Math.max(0, 8 - top8.length)).fill('<span></span>').join('');
-  }
   renderServiceChips();
 }
 
@@ -1867,127 +1905,294 @@ async function loadCounts() {
 }
 
 // ════ RENDER ════
+// The grid and list are keyed by title id and reconciled in place: existing
+// elements (and their poster <img>) are reused, so re-renders never reflash
+// artwork. Position changes glide via FLIP animations.
+function overlapCountOf(t) { return t.providers.length + partialProviders(t).length; }
+function measuredBytes(id) {
+  const entry = spaceCache.get(id);
+  return entry && entry.state === 'ready' ? (entry.total || 0) : -1;
+}
+function sortRows(rows) {
+  const arr = [...rows];
+  if (librarySort === 'year') arr.sort((a,b) => (Number(b.year)||0) - (Number(a.year)||0) || a.title.localeCompare(b.title));
+  else if (librarySort === 'overlap') arr.sort((a,b) => overlapCountOf(b) - overlapCountOf(a) || a.title.localeCompare(b.title));
+  else if (librarySort === 'size') arr.sort((a,b) => measuredBytes(b.id) - measuredBytes(a.id) || a.title.localeCompare(b.title));
+  return arr; // 'title' keeps the server's A–Z order
+}
 function visibleTitles() {
   let rows = allTitles;
   if (searchQ) rows = rows.filter(t => t.title.toLowerCase().includes(searchQ));
   if (filterCov === 'covered') rows = rows.filter(hasOverlap);
   if (filterCov === 'orphan')  rows = rows.filter(t => !hasOverlap(t));
-  return rows;
+  return sortRows(rows);
+}
+function setLibrarySort(value) {
+  librarySort = ['title', 'year', 'size', 'overlap'].includes(value) ? value : 'title';
+  saveStorage(STORAGE_KEYS.librarySort, librarySort);
+  const sel = $('librarySort');
+  if (sel && sel.value !== librarySort) sel.value = librarySort;
+  // Sorting by size needs sizes: queue a measurement for every filtered title
+  if (librarySort === 'size') visibleTitles().forEach(t => ensureSpace(t.id));
+  render();
 }
 
+let lastVisibleRows = [];
 function render() {
   const rows = visibleTitles();
-
-  // Update first metric card based on active filter state
-  const filtered = selectedSvcs.size > 0 || filterType !== 'all' || filterCov;
-  const labelEl = $('m-total-label');
-  const subEl   = $('m-total-sub');
-  const card    = $('m-total-card');
-  if (filtered) {
-    $('m-total').textContent = rows.length || '0';
-    // Build a short context label
-    const parts = [];
-    if (filterType === 'movie') parts.push('Movies');
-    else if (filterType === 'tv') parts.push('TV Shows');
-    if (selectedSvcs.size === 1) parts.push([...selectedSvcs][0]);
-    else if (selectedSvcs.size > 1) parts.push(`${selectedSvcs.size} Services`);
-    if (filterCov === 'covered') parts.push('Overlap');
-    else if (filterCov === 'orphan') parts.push('Plex Only');
-    labelEl.textContent = parts.join(' · ') || 'Filtered';
-    subEl.textContent = 'titles in current filter';
-    card.style.borderColor = 'var(--accent-border)';
-  } else {
-    $('m-total').textContent = allTitles.length || '—';
-    labelEl.textContent = 'Library Size';
-    subEl.textContent = 'titles indexed';
-    card.style.borderColor = '';
-  }
-
+  lastVisibleRows = rows;
+  updateLibCount(rows);
   if (view === 'grid') { renderGrid(rows); $('grid').classList.remove('off'); $('listview').classList.remove('on'); }
   else { renderList(rows); $('grid').classList.add('off'); $('listview').classList.add('on'); }
 }
 
-function renderGrid(rows) {
-  const g = $('grid');
-  if (!rows.length) { g.innerHTML = emptyHTML(); return; }
-  g.innerHTML = rows.map((t, i) => {
-    const partial = partialProviders(t);
-    const overlapCount = t.providers.length + partial.length;
-    const cardSpace = spaceCache.get(t.id);
-    const poster = t.thumb
-      ? `<img class="poster-img" src="${esc(t.thumb)}" alt="" loading="lazy">`
-      : '';
-    const blank = `<div class="poster-blank"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 4v5"/></svg></div>`;
-    const badges = [
-      ...t.providers.map(name => ({name, partial:false})),
-      ...partial.map(p => ({...p, partial:true})),
-    ];
-    const dots = badges.slice(0,4).map(p =>
-      `<span class="svc-dot ${p.partial?'partial':''}" ${p.partial?`title="${esc(partialAvailability(p))}"`:''}>${esc(shortOf(p.name))}${p.partial?` · S${esc(compactSeasons(p.seasons))}`:''}</span>`
-    ).join('') + (badges.length>4?`<span class="svc-dot">+${badges.length-4}</span>`:'');
-    return `<div class="card" style="animation-delay:${Math.min(i*18,400)}ms" onclick='openModal(${t.id})'>
-      <div class="poster-wrap">
-        ${blank}${poster}
-        <span class="type-tag ${t.type==='movie'?'movie':'tv'}">${t.type==='movie'?'FILM':'SERIES'}</span>
-        <span class="avail-badge ${t.providers.length?'has':partial.length?'partial':'none'}">${overlapCount||'0'}</span>
-        <div class="scrim">
-          <div class="card-title">${esc(t.title)}</div>
-          ${t.year?`<div class="card-year">${esc(t.year)}</div>`:''}
-          ${cardSpace && cardSpace.state === 'ready' && cardSpace.total > 0 ? `<span class="card-size" title="Freeable disk space">${formatBytes(cardSpace.total)} on disk</span>` : ''}
-          ${overlapCount?`<div class="svc-dots">${dots}</div>`:''}
-        </div>
+function updateLibCount(rows) {
+  const el = $('libCount');
+  if (!el) return;
+  const noun = filterType === 'movie' ? 'movie' : filterType === 'tv' ? 'show' : 'title';
+  const filtered = searchQ || filterCov || selectedSvcs.size > 0;
+  el.textContent = `${rows.length} ${noun}${rows.length === 1 ? '' : 's'}${filtered ? ' · filtered' : ''}`;
+}
+
+const gridEls = new Map();
+const lrowEls = new Map();
+let sizeObserver = null;
+
+// Lazily measure disk usage for tiles as they scroll into view
+function watchTileSize(el) {
+  if (!sizeObserver) {
+    sizeObserver = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (!entry.isIntersecting) return;
+        sizeObserver.unobserve(entry.target);
+        const id = Number(entry.target.dataset.id);
+        if (id) ensureSpace(id);
+      });
+    }, { root: document.querySelector('.scroll'), rootMargin: '300px' });
+  }
+  sizeObserver.observe(el);
+}
+
+// FLIP: measure keyed children before a reorder, then animate them from their
+// old position to the new one so movement reads as motion, not a repaint.
+function flipMove(container, mutate) {
+  if (reducedMotion.matches || !container.childElementCount) { mutate(); return; }
+  const before = new Map();
+  for (const el of container.children) {
+    if (el.dataset && el.dataset.id) before.set(el, el.getBoundingClientRect());
+  }
+  mutate();
+  before.forEach((first, el) => {
+    if (!el.isConnected) return;
+    const last = el.getBoundingClientRect();
+    const dx = first.left - last.left, dy = first.top - last.top;
+    if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
+    el.animate(
+      [{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'translate(0, 0)' }],
+      { duration: 320, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' }
+    );
+  });
+}
+
+function cardHTML(t) {
+  const partial = partialProviders(t);
+  const overlapCount = t.providers.length + partial.length;
+  const poster = t.thumb
+    ? `<img class="poster-img" src="${esc(t.thumb)}" alt="" loading="lazy">`
+    : '';
+  const blank = `<div class="poster-blank"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 4v5"/></svg></div>`;
+  const badges = [
+    ...t.providers.map(name => ({name, partial:false})),
+    ...partial.map(p => ({...p, partial:true})),
+  ];
+  const dots = badges.slice(0,4).map(p =>
+    `<span class="svc-dot ${p.partial?'partial':''}" ${p.partial?`title="${esc(partialAvailability(p))}"`:''}>${esc(shortOf(p.name))}${p.partial?` · S${esc(compactSeasons(p.seasons))}`:''}</span>`
+  ).join('') + (badges.length>4?`<span class="svc-dot">+${badges.length-4}</span>`:'');
+  return `<div class="poster-wrap">
+      ${blank}${poster}
+      <span class="type-tag ${t.type==='movie'?'movie':'tv'}">${t.type==='movie'?'FILM':'SERIES'}</span>
+      <span class="avail-badge ${t.providers.length?'has':partial.length?'partial':'none'}">${overlapCount||'0'}</span>
+      <div class="scrim">
+        <div class="card-title">${esc(t.title)}</div>
+        ${t.year?`<div class="card-year">${esc(t.year)}</div>`:''}
+        <span class="card-size" data-size hidden title="Disk space used by this title"></span>
+        ${overlapCount?`<div class="svc-dots">${dots}</div>`:''}
       </div>
     </div>`;
-  }).join('');
+}
+
+function rowHTML(t) {
+  const poster = t.thumb ? `<img class="lrow-poster" src="${esc(t.thumb)}" loading="lazy" onerror="this.style.visibility='hidden'">` : `<div class="lrow-poster"></div>`;
+  const partial = partialProviders(t);
+  const svcs = hasOverlap(t)
+    ? t.providers.map(s=>`<span class="svc-dot">${esc(shortOf(s))}</span>`).join('')
+      + partial.map(p=>`<span class="svc-dot partial" title="${esc(partialAvailability(p))}">${esc(shortOf(p.name))} · S${esc(compactSeasons(p.seasons))}</span>`).join('')
+    : `<span class="lrow-empty">PLEX ONLY · NO OVERLAP</span>`;
+  return `<input class="list-check" type="checkbox" aria-label="Select ${esc(t.title)}" onclick="event.stopPropagation()" onchange="toggleListSelection(${t.id}, this.checked)">
+    ${poster}
+    <div class="lrow-main">
+      <div class="lrow-title">${esc(t.title)}</div>
+      <div class="lrow-meta">${t.type==='movie'?'FILM':'SERIES'}${t.year?' · '+esc(t.year):''}</div>
+    </div>
+    <span class="lrow-size dim" data-size title="Not measured yet">—</span>
+    <div class="lrow-svcs">${svcs}</div>
+    <div class="lrow-actions"><button class="mini-remove" onclick='event.stopPropagation();handleRemove(${t.id})'>Remove</button></div>`;
+}
+
+function patchTileSize(el, id) {
+  const span = el.querySelector('[data-size]');
+  if (!span) return;
+  const entry = spaceCache.get(id);
+  const ready = entry && entry.state === 'ready' && entry.total > 0;
+  span.hidden = !ready;
+  if (ready) span.textContent = `${formatBytes(entry.total)} on disk`;
+}
+
+function patchRowSize(el, id) {
+  const span = el.querySelector('[data-size]');
+  if (!span) return;
+  const entry = spaceCache.get(id);
+  if (entry && entry.state === 'ready') {
+    span.textContent = entry.total > 0 ? formatBytes(entry.total) : '0 B';
+    span.classList.remove('dim');
+    span.title = 'Disk space used by this title';
+  } else if (entry && entry.state === 'loading') {
+    span.textContent = '…';
+    span.classList.add('dim');
+    span.title = 'Measuring…';
+  } else {
+    span.textContent = '—';
+    span.classList.add('dim');
+    span.title = entry && entry.state === 'error' ? (entry.error || 'Could not measure') : 'Not measured yet';
+  }
+}
+
+function patchSizeEverywhere(id) {
+  const card = gridEls.get(id);
+  if (card) patchTileSize(card, id);
+  const row = lrowEls.get(id);
+  if (row) patchRowSize(row, id);
+}
+
+function renderGrid(rows) {
+  const g = $('grid');
+  if (!rows.length) {
+    gridEls.clear();
+    g.innerHTML = emptyHTML();
+    g.dataset.empty = '1';
+    return;
+  }
+  if (g.dataset.empty) { g.innerHTML = ''; delete g.dataset.empty; }
+  const initial = !g.childElementCount;
+  flipMove(g, () => {
+    const seen = new Set();
+    rows.forEach((t, i) => {
+      let el = gridEls.get(t.id);
+      const html = cardHTML(t);
+      if (!el) {
+        el = document.createElement('div');
+        el.className = 'card enter';
+        el.dataset.id = t.id;
+        el.innerHTML = html;
+        el.__html = html;
+        if (initial) el.style.animationDelay = `${Math.min(i * 18, 400)}ms`;
+        el.addEventListener('click', () => openModal(t.id));
+        el.addEventListener('animationend', () => { el.classList.remove('enter'); el.style.animationDelay = ''; }, { once: true });
+        gridEls.set(t.id, el);
+        watchTileSize(el);
+      } else if (el.__html !== html) {
+        el.innerHTML = html;
+        el.__html = html;
+      }
+      patchTileSize(el, t.id);
+      seen.add(t.id);
+      if (g.children[i] !== el) g.insertBefore(el, g.children[i] || null);
+    });
+    for (const [id, el] of [...gridEls]) {
+      if (!seen.has(id)) { el.remove(); gridEls.delete(id); }
+    }
+  });
 }
 
 function renderList(rows) {
-  const l = $('listview');
+  const host = $('listRows');
+  updateListTools(rows);
+  if (!rows.length) {
+    lrowEls.clear();
+    host.innerHTML = emptyHTML();
+    host.dataset.empty = '1';
+    return;
+  }
+  if (host.dataset.empty) { host.innerHTML = ''; delete host.dataset.empty; }
+  flipMove(host, () => {
+    const seen = new Set();
+    rows.forEach((t, i) => {
+      let el = lrowEls.get(t.id);
+      const html = rowHTML(t);
+      if (!el) {
+        el = document.createElement('div');
+        el.className = 'lrow enter';
+        el.dataset.id = t.id;
+        el.innerHTML = html;
+        el.__html = html;
+        el.addEventListener('click', () => openModal(t.id));
+        el.addEventListener('animationend', () => el.classList.remove('enter'), { once: true });
+        lrowEls.set(t.id, el);
+        watchTileSize(el);
+      } else if (el.__html !== html) {
+        el.innerHTML = html;
+        el.__html = html;
+      }
+      const selected = selectedTitles.has(t.id);
+      el.classList.toggle('selected', selected);
+      const check = el.querySelector('.list-check');
+      if (check && check.checked !== selected) check.checked = selected;
+      patchRowSize(el, t.id);
+      seen.add(t.id);
+      if (host.children[i] !== el) host.insertBefore(el, host.children[i] || null);
+    });
+    for (const [id, el] of [...lrowEls]) {
+      if (!seen.has(id)) { el.remove(); lrowEls.delete(id); }
+    }
+  });
+}
+
+function updateListTools(rows) {
   const visibleIds = rows.map(t => t.id);
   const selectedVisible = visibleIds.filter(id => selectedTitles.has(id)).length;
-  const selectedCount = selectedTitles.size;
-  const rowHTML = rows.length ? rows.map((t,i) => {
-    const poster = t.thumb ? `<img class="lrow-poster" src="${esc(t.thumb)}" loading="lazy" onerror="this.style.visibility='hidden'">` : `<div class="lrow-poster"></div>`;
-    const partial = partialProviders(t);
-    const svcs = hasOverlap(t)
-      ? t.providers.map(s=>`<span class="svc-dot">${esc(shortOf(s))}</span>`).join('')
-        + partial.map(p=>`<span class="svc-dot partial" title="${esc(partialAvailability(p))}">${esc(shortOf(p.name))} · S${esc(compactSeasons(p.seasons))}</span>`).join('')
-      : `<span class="lrow-empty">PLEX ONLY · NO OVERLAP</span>`;
-    const selected = selectedTitles.has(t.id);
-    const space = spaceCache.get(t.id);
-    const sizeChip = space && space.state === 'ready' && space.total > 0
-      ? `<span class="lrow-size" title="Freeable disk space">${formatBytes(space.total)}</span>` : '';
-    return `<div class="lrow ${selected?'selected':''}" style="animation-delay:${Math.min(i*10,300)}ms" onclick='openModal(${t.id})'>
-      <input class="list-check" type="checkbox" ${selected?'checked':''} aria-label="Select ${esc(t.title)}" onclick="event.stopPropagation()" onchange="toggleListSelection(${t.id}, this.checked)">
-      ${poster}
-      <div class="lrow-main">
-        <div class="lrow-title">${esc(t.title)}</div>
-        <div class="lrow-meta">${t.type==='movie'?'FILM':'SERIES'}${t.year?' · '+esc(t.year):''}</div>
-      </div>
-      ${sizeChip}
-      <div class="lrow-svcs">${svcs}</div>
-      <div class="lrow-actions"><button class="mini-remove" onclick='event.stopPropagation();handleRemove(${t.id})'>Remove</button></div>
-    </div>`;
-  }).join('') : emptyHTML();
-  l.innerHTML = `<div class="list-tools">
-    <label class="list-select-all">
-      <input class="list-check" id="listSelectAll" type="checkbox" onchange="toggleAllVisible(this.checked)" ${visibleIds.length?'':'disabled'}>
-      <span>Select visible</span>
-    </label>
-    <span class="list-selected-count">${selectedCount} selected</span>
-    <span class="list-freeable" id="freeableTotal">${freeableSummaryHTML()}</span>
-    <button class="batch-remove" onclick="handleBatchRemove()" ${selectedCount?'':'disabled'}>Remove Selected</button>
-  </div>${rowHTML}`;
+  $('listSelectedCount').textContent = `${selectedTitles.size} selected`;
+  $('batchRemoveBtn').disabled = !selectedTitles.size;
+  $('listClearBtn').disabled = !selectedTitles.size;
   const selectAll = $('listSelectAll');
+  selectAll.disabled = !visibleIds.length;
   selectAll.checked = visibleIds.length > 0 && selectedVisible === visibleIds.length;
   selectAll.indeterminate = selectedVisible > 0 && selectedVisible < visibleIds.length;
+  updateFreeableTotal();
+}
+
+function clearListSelection() {
+  selectedTitles.clear();
+  render();
+}
+
+function hasActiveFilters() { return !!(searchQ || filterCov || selectedSvcs.size); }
+function clearAllFilters() {
+  searchQ = '';
+  $('search').value = '';
+  filterCov = null;
+  document.querySelectorAll('[data-cov]').forEach(b => b.classList.remove('on'));
+  selectedSvcs.clear();
+  activeServiceList = '';
+  renderServiceChips();
+  loadTitles();
 }
 
 function emptyHTML() {
   return `<div class="empty">
     <svg class="empty-ico" width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><circle cx="11" cy="11" r="7"/><path d="M16 16l5 5" stroke-linecap="round"/></svg>
     <div class="empty-h">No contacts on ping</div>
-    <div class="empty-p">Adjust your filters or run a ping to populate the library</div>
+    <div class="empty-p">${hasActiveFilters() ? 'Nothing matches the current filters.' : 'Run a ping to populate the library.'}</div>
+    ${hasActiveFilters() ? '<button class="svc-tool" type="button" style="margin-top:14px" onclick="clearAllFilters()">Clear filters</button>' : ''}
   </div>`;
 }
 
@@ -2006,7 +2211,8 @@ function formatBytes(bytes) {
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
   let value = bytes, unit = 0;
   while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit++; }
-  return `${unit === 0 ? value : value >= 100 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`;
+  const num = unit === 0 ? String(value) : value >= 100 ? String(Math.round(value)) : value.toFixed(1).replace(/\.0$/, '');
+  return `${num} ${units[unit]}`;
 }
 
 function ensureSpace(id, priority = false) {
@@ -2038,10 +2244,14 @@ async function fetchSpace(id) {
 
 function onSpaceUpdated(id) {
   if (modalTitleId === id) renderModalSpace(id);
+  patchSizeEverywhere(id);
   updateFreeableTotal();
-  // Refresh visible size chips without a render per response
-  clearTimeout(spaceRenderTimer);
-  spaceRenderTimer = setTimeout(() => render(), 400);
+  // A size-sorted view re-sorts (with FLIP movement) as measurements land
+  if (librarySort === 'size') {
+    clearTimeout(spaceRenderTimer);
+    spaceRenderTimer = setTimeout(() => render(), 350);
+  }
+  if (currentPage === 'stats') scheduleStatsDisk();
 }
 
 const SPACE_SRC_LABEL = {plex: 'Plex', radarr: 'Radarr', sonarr: 'Sonarr', torrent: 'Torrent', torrent_client: 'Torrent client'};
@@ -2157,6 +2367,14 @@ function openModal(id) {
 }
 function closeModal() { modalTitleId = null; $('modalBg').classList.remove('on'); }
 document.addEventListener('keydown', e => { if (e.key==='Escape') closeModal(); });
+// "/" jumps to search (unless already typing somewhere)
+document.addEventListener('keydown', e => {
+  if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey) return;
+  const tag = (document.activeElement && document.activeElement.tagName) || '';
+  if (['INPUT', 'SELECT', 'TEXTAREA'].includes(tag)) return;
+  e.preventDefault();
+  $('search').focus();
+});
 
 // ════ REMOVE FLOW ════
 async function handleRemove(id) {
@@ -2521,8 +2739,15 @@ async function confirmTitleRemoval(id) {
 
 function toggleListSelection(id, checked) {
   checked ? selectedTitles.add(id) : selectedTitles.delete(id);
-  if (checked) ensureSpace(id);
-  render();
+  if (checked) ensureSpace(id, true);
+  // Patch the one row in place — no full re-render, no poster flash
+  const el = lrowEls.get(id);
+  if (el) {
+    el.classList.toggle('selected', checked);
+    const check = el.querySelector('.list-check');
+    if (check && check.checked !== checked) check.checked = checked;
+  }
+  updateListTools(lastVisibleRows);
 }
 
 function toggleAllVisible(checked) {
@@ -2680,6 +2905,137 @@ function toast(msg) {
   toastTimer = setTimeout(() => el.classList.remove('on'), 3200);
 }
 
+// ════ STATS REPORT ════
+// The Stats page is a printout built from the full (unfiltered) library plus
+// whatever disk measurements exist; more can be measured on demand.
+let statsTitles = null;
+let statsLoading = false;
+let statsDiskTimer = null;
+
+async function loadStats() {
+  if (statsLoading) return;
+  statsLoading = true;
+  try {
+    const r = await fetch('/api/titles');
+    statsTitles = await r.json();
+    renderStats();
+  } catch (e) {
+    const report = $('statReport');
+    if (report) report.innerHTML = '<div class="stat-block"><div class="stat-note">Could not load library stats — is the server reachable?</div></div>';
+  } finally {
+    statsLoading = false;
+  }
+}
+
+function pctOf(part, total) { return total ? `${Math.round(part / total * 100)}%` : ''; }
+
+function statRow(label, value, opts = {}) {
+  return `<div class="stat-row${opts.indent ? ' indent' : ''}">
+      <span>${esc(label)}</span><span class="stat-dots"></span>
+      <span class="stat-num${opts.accent ? ' accent' : ''}">${esc(String(value))}</span>
+      <span class="stat-pct">${esc(opts.pct || '')}</span>
+    </div>`;
+}
+
+function renderStats() {
+  const report = $('statReport');
+  if (!report || !statsTitles) return;
+  const rows = statsTitles;
+  const movies = rows.filter(t => t.type === 'movie');
+  const shows = rows.filter(t => t.type === 'tv');
+  const overlapRows = rows.filter(hasOverlap);
+  const fullRows = rows.filter(t => t.providers.length > 0);
+  const partialRows = rows.filter(t => !t.providers.length && partialProviders(t).length > 0);
+  const plexOnly = rows.length - overlapRows.length;
+  const moviesOverlap = movies.filter(hasOverlap).length;
+  const showsOverlap = shows.filter(hasOverlap).length;
+  const counts = countLocalStats(rows).service_counts;
+  const entries = Object.entries(counts).filter(([,c]) => c > 0).sort((a,b) => b[1]-a[1] || a[0].localeCompare(b[0]));
+  const max = entries.length ? entries[0][1] : 1;
+  const bars = entries.map(([s, c]) => `<div class="sbar-row">
+      <span class="sbar-name" title="${esc(s)}">${esc(s)}</span>
+      <span class="sbar-track"><span class="sbar-fill" style="width:${Math.max(3, Math.round(c / max * 100))}%;background:${serviceColor(s)}"></span></span>
+      <span class="stat-num">${c}</span>
+      <span class="stat-pct">${pctOf(c, rows.length)}</span>
+    </div>`).join('');
+  report.innerHTML = `
+    <div class="stat-block">
+      <div class="stat-block-head"><span class="microlabel">Fleet report — library</span></div>
+      ${statRow('Titles indexed', rows.length)}
+      ${statRow('Movies', movies.length, {indent: true, pct: pctOf(movies.length, rows.length)})}
+      ${statRow('TV shows', shows.length, {indent: true, pct: pctOf(shows.length, rows.length)})}
+      ${statRow('Available on streaming', overlapRows.length, {accent: true, pct: pctOf(overlapRows.length, rows.length)})}
+      ${statRow('Fully available', fullRows.length, {indent: true})}
+      ${statRow('Partially available (some seasons)', partialRows.length, {indent: true})}
+      ${statRow('Plex-only, no streaming overlap', plexOnly, {pct: pctOf(plexOnly, rows.length)})}
+      ${statRow('Movies with overlap', moviesOverlap, {indent: true, pct: pctOf(moviesOverlap, movies.length)})}
+      ${statRow('Shows with overlap', showsOverlap, {indent: true, pct: pctOf(showsOverlap, shows.length)})}
+    </div>
+    <div class="stat-block">
+      <div class="stat-block-head"><span class="microlabel">Overlap by service</span></div>
+      ${bars || '<div class="stat-note">No streaming overlap found yet — run a ping first.</div>'}
+      ${bars ? '<div class="stat-note">Percentages are the share of your whole library each service carries. Season-partial matches count.</div>' : ''}
+    </div>
+    <div class="stat-block" id="statDisk"></div>`;
+  renderStatsDisk();
+}
+
+function statsDiskNumbers() {
+  let measured = 0, errors = 0, loading = 0, totalBytes = 0, overlapBytes = 0;
+  const sized = [];
+  (statsTitles || []).forEach(t => {
+    const entry = spaceCache.get(t.id);
+    if (!entry) return;
+    if (entry.state === 'ready') {
+      measured++;
+      totalBytes += entry.total || 0;
+      if (hasOverlap(t)) overlapBytes += entry.total || 0;
+      sized.push([t, entry.total || 0]);
+    } else if (entry.state === 'error') errors++;
+    else loading++;
+  });
+  sized.sort((a, b) => b[1] - a[1]);
+  return { measured, errors, loading, totalBytes, overlapBytes, top: sized.slice(0, 10) };
+}
+
+function renderStatsDisk() {
+  const host = $('statDisk');
+  if (!host || !statsTitles) return;
+  const n = statsTitles.length;
+  const d = statsDiskNumbers();
+  const head = `<div class="stat-block-head">
+      <span class="microlabel">Disk space</span>
+      ${d.measured + d.errors < n && !d.loading ? `<button class="stat-btn" type="button" onclick="measureLibrarySizes()">${d.measured ? 'Measure remaining' : 'Measure disk usage'}</button>` : ''}
+    </div>`;
+  if (!d.measured && !d.loading) {
+    host.innerHTML = `${head}<div class="stat-note">Disk usage is measured on demand — it queries Plex, Radarr/Sonarr, and your torrent client per title. Sizes already measured while browsing appear here automatically.</div>`;
+    return;
+  }
+  const topRows = d.top.map(([t, bytes]) => `<div class="stat-top">
+      <span class="stat-num accent">${formatBytes(bytes)}</span>
+      <span class="stat-top-title">${esc(t.title)}</span>
+      <span class="stat-top-svcs">${[...titleServiceNames(t)].slice(0, 3).map(s => esc(shortOf(s))).join(' · ') || 'PLEX ONLY'}</span>
+    </div>`).join('');
+  host.innerHTML = `${head}
+    ${statRow('Titles measured', `${d.measured} of ${n}`, {pct: pctOf(d.measured, n)})}
+    ${d.loading ? statRow('Measuring now', d.loading, {indent: true}) : ''}
+    ${d.errors ? statRow('Could not measure', d.errors, {indent: true}) : ''}
+    ${statRow('Space used by measured titles', formatBytes(d.totalBytes))}
+    ${statRow('… of which is streamable elsewhere', formatBytes(d.overlapBytes), {accent: true})}
+    ${d.top.length ? `<div class="stat-block-head" style="margin-top:14px"><span class="microlabel">Largest measured titles</span></div>${topRows}` : ''}
+    <div class="stat-note">The streamable number is your best-case reclaim: space held by titles also carried by a streaming service. Hardlinked copies count once per title.</div>`;
+}
+
+function measureLibrarySizes() {
+  (statsTitles || []).forEach(t => ensureSpace(t.id));
+  renderStatsDisk();
+}
+
+function scheduleStatsDisk() {
+  clearTimeout(statsDiskTimer);
+  statsDiskTimer = setTimeout(renderStatsDisk, 300);
+}
+
 // ════ PAGES / FILTERS ════
 let currentPage = 'library';
 function setPage(page) {
@@ -2688,6 +3044,7 @@ function setPage(page) {
   $('libraryPage').classList.toggle('on', currentPage === 'library');
   const nav = $('navStats');
   if (nav) nav.classList.toggle('on', currentPage === 'stats');
+  if (currentPage === 'stats') loadStats();
 }
 function setType(t, el) {
   filterType = t; filterCov = null;
@@ -2778,9 +3135,10 @@ function deleteServiceList() {
 }
 function onSearch() { searchQ = $('search').value.toLowerCase(); render(); }
 function setView(v) {
-  view = v;
-  $('viewGrid').classList.toggle('on', v==='grid');
-  $('viewList').classList.toggle('on', v==='list');
+  view = v === 'list' ? 'list' : 'grid';
+  saveStorage(STORAGE_KEYS.view, view);
+  $('viewGrid').classList.toggle('on', view==='grid');
+  $('viewList').classList.toggle('on', view==='list');
   render();
 }
 
@@ -2859,6 +3217,11 @@ async function poll(watchForStart=false) {
         if (lastSyncedCount !== -1) {
           spaceCache.clear();
           selectedTitles.forEach(id => ensureSpace(id));
+          // Sizes were invalidated; let tiles lazily re-measure as they scroll by
+          gridEls.forEach(el => watchTileSize(el));
+          lrowEls.forEach(el => watchTileSize(el));
+          statsTitles = null;
+          if (currentPage === 'stats') loadStats();
         }
         lastSyncedCount = -1;
         loadTitles({preserveScroll: true}); loadCounts();
@@ -2877,6 +3240,9 @@ async function poll(watchForStart=false) {
 // ════ INIT ════
 (async () => {
   renderServiceChips();
+  const sortSel = $('librarySort');
+  if (sortSel) sortSel.value = librarySort;
+  setView(view); // restore persisted grid/list choice
   const needsSetup = await checkSetup();
   if (!needsSetup) {
     poll();
