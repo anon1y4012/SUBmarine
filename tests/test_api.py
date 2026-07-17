@@ -179,9 +179,9 @@ class TestRemoval:
         r = client.post(f'/api/remove/{title_id}', json={'confirmed': True})
         assert r.status_code == 400
 
-    def test_tv_removal_not_supported(self, app, client):
+    def test_tv_removal_requires_sonarr_config(self, app, client):
         title_id = insert_title(app, rating_key='1', media_type='tv')
         r = client.post(f'/api/remove/{title_id}',
-                        json={'confirmed': True, 'delete_plex': True})
+                        json={'confirmed': True, 'remove_sonarr': True})
         assert r.status_code == 400
         assert 'Sonarr' in r.get_json()['error']
