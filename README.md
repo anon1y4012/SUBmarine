@@ -32,7 +32,7 @@ Open `http://localhost:5055` and follow the setup wizard. You will need:
 - A free [TMDB API key](https://www.themoviedb.org/settings/api)
 - (Optional) Radarr / Sonarr / Cleanuparr / torrent client details for removal features
 
-Prebuilt images are published to GHCR on every commit to `main`:
+Prebuilt images are published to GHCR on every commit to `main`, for both `linux/amd64` and `linux/arm64` (Raspberry Pi, most NAS boxes, Apple Silicon):
 
 ```yaml
 image: ghcr.io/anon1y4012/submarine:latest
