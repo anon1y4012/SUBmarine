@@ -11,11 +11,11 @@ SUBmarine compares your Plex movie and TV libraries against the streaming servic
 <table>
 <tr>
 <td width="50%"><img src="Screenshots/library-list.png" alt="List view showing each title's size on disk and a Remove button"><br><sub>List view — size at a glance, remove without leaving the row</sub></td>
-<td width="50%"><img src="Screenshots/service-filter.png" alt="Library filtered to Netflix, Disney Plus, and Peacock Premium"><br><sub>Filter down to the services you actually pay for</sub></td>
+<td width="50%"><img src="Screenshots/service-filter.png" alt="Library filtered to Netflix, Disney Plus, and Peacock Premium"><br><sub>Filter down to the services you pay for</sub></td>
 </tr>
 <tr>
 <td width="50%"><img src="Screenshots/batch-removal.png" alt="Batch removal dialog with preset protocols and Cleanuparr seed-time protection"><br><sub>Guided removal — pick a protocol, seed-time protection built in</sub></td>
-<td width="50%"><img src="Screenshots/stats.png" alt="Stats report page showing library composition and overlap by service"><br><sub>A stats printout, not a wall of vanity cards</sub></td>
+<td width="50%"><img src="Screenshots/stats.png" alt="Stats report page showing library composition and overlap by service"><br><sub>A stats printout.</sub></td>
 </tr>
 </table>
 
