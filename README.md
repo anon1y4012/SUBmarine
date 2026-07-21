@@ -4,6 +4,21 @@
 
 SUBmarine compares your Plex movie and TV libraries against the streaming services you (might) already pay for, using TMDB watch-provider data. It answers the question: *"How much of my library is already available on Netflix, Max, Hulu, …?"* — so you can reclaim disk space with confidence.
 
+## Screenshots
+
+<p align="center"><img src="Screenshots/library-grid.png" width="820" alt="Poster grid view sorted by on-disk size, with the vertical service filter panel open"></p>
+
+<table>
+<tr>
+<td width="50%"><img src="Screenshots/library-list.png" alt="List view showing each title's size on disk and a Remove button"><br><sub>List view — size at a glance, remove without leaving the row</sub></td>
+<td width="50%"><img src="Screenshots/service-filter.png" alt="Library filtered to Netflix, Disney Plus, and Peacock Premium"><br><sub>Filter down to the services you actually pay for</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="Screenshots/batch-removal.png" alt="Batch removal dialog with preset protocols and Cleanuparr seed-time protection"><br><sub>Guided removal — pick a protocol, seed-time protection built in</sub></td>
+<td width="50%"><img src="Screenshots/stats.png" alt="Stats report page showing library composition and overlap by service"><br><sub>A stats printout, not a wall of vanity cards</sub></td>
+</tr>
+</table>
+
 ## How it works
 
 1. **Sync** — SUBmarine reads your Plex libraries and asks TMDB which streaming services carry each title (matching whole shows season-by-season, not just by name).
