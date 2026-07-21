@@ -4,19 +4,29 @@
 
 SUBmarine compares your Plex movie and TV libraries against the streaming services you (might) already pay for, using TMDB watch-provider data. It answers the question: *"How much of my library is already available on Netflix, Max, Hulu, …?"* — so you can reclaim disk space with confidence.
 
+## How it works
+
+1. **Sync** — SUBmarine reads your Plex libraries and asks TMDB which streaming services carry each title (matching whole shows season-by-season, not just by name).
+2. **Browse** — see what's redundant in a poster grid or list, filter by service, sort by disk size, and check the Stats page for the library-wide picture.
+3. **Reclaim** — pick a title (or a batch), preview exactly what removal would touch, and confirm once. SUBmarine can clean up Plex, Radarr/Sonarr, active downloads, and torrent-client entries in one guided step — without cutting a torrent short of your seed-time rules.
+
 ## Features
 
-- **Overlap dashboard** — per-service counts, total overlap, and unavailable-anywhere metrics for movies and TV.
-- **Season-aware TV matching** — a show only counts as "on Netflix" if every season you actually have in Plex is streamable; partial coverage is shown per season.
-- **Fast incremental sync** — titles are fingerprinted, so re-syncs only hit TMDB for new or changed items; parallel workers keep full syncs quick.
+**Browsing & insights**
 - **Poster grid & list views** — searchable, filterable by service (vertical service-list menu with saved lists), and sortable by title, year, streaming overlap, or on-disk size, with each title's measured disk footprint shown inline. Rendering is flicker-free — posters are never reloaded on filter or sort changes, and reorders animate into place.
+- **Season-aware TV matching** — a show only counts as "on Netflix" if every season you actually have in Plex is streamable; partial coverage is shown per season.
 - **Stats report page** — a printout-style report of library composition, per-service overlap shares, and disk space: total measured usage, how much of it is held by titles you could stream instead, and your largest titles. Disk usage is measured on demand.
+- **Freeable-space measurement** — each title's detail view lists the actual files on disk across Plex, Radarr/Sonarr, and the torrent client, deduplicating hardlinked copies (matched by identical byte size) so a 1080p and a 4K copy count separately but a torrent and its Radarr import count once. Selecting titles in list view keeps a live running total of the space a cleanup would free, in a selection toolbar that stays pinned while you scroll.
+- **Light/dark theme** — follows the OS appearance (including macOS auto-switching) by default, with a manual light/dark override.
+
+**Cleanup automation**
 - **Guided removal (movies & TV)** — one dialog can remove a title from Plex (with files), Radarr or Sonarr, active downloads, matched torrent-client entries (qBittorrent / Transmission), and trigger Cleanuparr. Preset "protocols" cover the common cases; every step is individually switchable under Advanced, opt-in, and previewed first.
 - **Seed-time protection** — optionally reads Cleanuparr's Download Cleaner seeding rules and keeps any matched torrent that has not yet met the strictest enabled seed-time bound (min *or* max seed time — Cleanuparr can clean on either), so removals never cut a torrent short of your tracker rules.
-- **Light/dark theme** — follows the OS appearance (including macOS auto-switching) by default, with a manual light/dark override.
-- **Freeable-space measurement** — each title's detail view lists the actual files on disk across Plex, Radarr/Sonarr, and the torrent client, deduplicating hardlinked copies (matched by identical byte size) so a 1080p and a 4K copy count separately but a torrent and its Radarr import count once. Selecting titles in list view keeps a live running total of the space a cleanup would free, in a selection toolbar that stays pinned while you scroll.
+
+**Setup & operations**
 - **First-run setup wizard** — connection testing and auto-discovery for Radarr, Sonarr, Cleanuparr, and torrent clients on common hosts/ports.
-- **Single container** — Flask + SQLite, no external database.
+- **Fast incremental sync** — titles are fingerprinted, so re-syncs only hit TMDB for new or changed items; parallel workers keep full syncs quick.
+- **Single container** — Flask + SQLite, no external database, multi-arch image (amd64/arm64).
 
 ## Quick start
 
@@ -90,7 +100,12 @@ you are ready to enforce authentication.
 
 Do not expose the container directly to the internet. Bind the published port to
 `127.0.0.1` for local-only use, or put it behind an authenticated reverse proxy
-when remote access is needed.
+when remote access is needed. Library titles, poster art, and per-service overlap
+counts are readable without a token by design (so the dashboard works before
+first-run setup); everything that reads or changes credentials, triggers a sync,
+measures disk usage, or removes a title requires the token once one exists. On a
+shared or otherwise untrusted LAN, put SUBmarine behind a reverse proxy rather
+than relying on the token alone to keep library contents private.
 
 The `/data` volume stores service credentials in the SQLite database. Restrict access
 to that volume, browser profiles that hold the access token, and application logs.
